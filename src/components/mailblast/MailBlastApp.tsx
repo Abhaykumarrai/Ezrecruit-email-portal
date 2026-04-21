@@ -1,0 +1,2063 @@
+"use client";
+
+import Image from "next/image";
+import {
+  activityFeed50,
+  CAMPAIGN_DISPLAY_NAME,
+  email50,
+  formatInt,
+  rates50,
+} from "@/data/dashboard-sample-50";
+import {
+  useCallback,
+  type DragEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { Btn, Card, CardHeader } from "./ui";
+
+type PageId = "dashboard" | "metrics" | "compose" | "settings";
+
+type ModalId = "sendConfirm" | null;
+
+type RecipientPayload = {
+  name: string;
+  email: string;
+  company: string;
+  custom1: string;
+  custom2: string;
+};
+
+type CampaignDraft = {
+  fromName: string;
+  fromEmail: string;
+  replyToEmail: string;
+  subject: string;
+  html: string;
+  recipients: RecipientPayload[];
+};
+
+type LiveDashboardStats = {
+  totals: {
+    sent: number;
+    delivered: number;
+    opens: number;
+    clicks: number;
+    replies: number;
+    spamReports: number;
+    unsubscribed: number;
+    undelivered: number;
+    bounces: number;
+  };
+  rates: {
+    openPct: number;
+    clickPct: number;
+    replyPct: number;
+    bouncePct: number;
+    unsubPct: number;
+    spamPct: number;
+    undeliveredPct: number;
+  };
+};
+
+const PAGE_TITLES: Record<PageId, string> = {
+  dashboard: "Dashboard",
+  metrics: "Email activity",
+  compose: "Compose Campaign",
+  settings: "Settings",
+};
+
+type StatMetric = "sent" | "open" | "click" | "replies" | "spam" | "unsubscribed" | "undelivered";
+
+function NavBtn({
+  id,
+  label,
+  Icon,
+  page,
+  setPage,
+}: {
+  id: PageId;
+  label: string;
+  Icon: NavIcon;
+  page: PageId;
+  setPage: (id: PageId) => void;
+}) {
+  const active = page === id || (id === "dashboard" && page === "metrics");
+  return (
+    <button
+      type="button"
+      onClick={() => setPage(id)}
+      className={`mb-px flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors ${
+        active
+          ? "bg-sky-500/15 font-medium text-sky-400"
+          : "text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-100"
+      }`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${active ? "opacity-100" : "opacity-70"}`} />
+      {label}
+    </button>
+  );
+}
+
+function NavIconDashboard({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="1" y="1" width="6" height="6" rx="1" fill="currentColor" opacity="0.8" />
+      <rect x="9" y="1" width="6" height="6" rx="1" fill="currentColor" opacity="0.5" />
+      <rect x="1" y="9" width="6" height="6" rx="1" fill="currentColor" opacity="0.5" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" opacity="0.3" />
+    </svg>
+  );
+}
+
+function NavIconCompose({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5 6h6M5 9h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+type NavIcon = ComponentType<{ className?: string }>;
+
+const navMain: { id: PageId; label: string; Icon: NavIcon }[] = [
+  { id: "dashboard", label: "Dashboard", Icon: NavIconDashboard },
+  { id: "compose", label: "Compose", Icon: NavIconCompose },
+];
+
+function insertAtCursor(editor: HTMLDivElement | null, text: string) {
+  if (!editor) return;
+  editor.focus();
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) {
+    editor.appendChild(document.createTextNode(text));
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) {
+    const r = document.createRange();
+    r.selectNodeContents(editor);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  }
+  const r = sel.getRangeAt(0);
+  r.deleteContents();
+  r.insertNode(document.createTextNode(text));
+  r.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(r);
+}
+
+function focusEditorEnd(editor: HTMLDivElement | null) {
+  if (!editor) return;
+  editor.focus();
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function insertHtmlAtCursor(editor: HTMLDivElement | null, html: string) {
+  if (!editor) return;
+  focusEditorEnd(editor);
+  document.execCommand("insertHTML", false, html);
+}
+
+export function MailBlastApp() {
+  const [page, setPage] = useState<PageId>("dashboard");
+  const [metricTab, setMetricTab] = useState<StatMetric>("sent");
+  const [modal, setModal] = useState<ModalId>(null);
+  const [campaignDraft, setCampaignDraft] = useState<CampaignDraft | null>(null);
+  const [sendState, setSendState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [sendMessage, setSendMessage] = useState("");
+  const [liveStats, setLiveStats] = useState<LiveDashboardStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState("");
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStats = async () => {
+      try {
+        setStatsLoading(true);
+        setStatsError("");
+        const res = await fetch("/api/sendgrid/stats?days=30");
+        const data = (await res.json()) as LiveDashboardStats & { message?: string };
+        if (!res.ok) throw new Error(data.message || "Failed to load SendGrid stats.");
+        if (!cancelled) setLiveStats(data);
+      } catch (err) {
+        if (!cancelled) {
+          setStatsError(err instanceof Error ? err.message : "Failed to load SendGrid stats.");
+          setLiveStats(null);
+        }
+      } finally {
+        if (!cancelled) setStatsLoading(false);
+      }
+    };
+    loadStats();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const insertTag = useCallback((tag: string) => {
+    insertAtCursor(editorRef.current, tag);
+  }, []);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-950 font-sans text-zinc-100">
+      <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-900">
+        <div className="border-b border-zinc-800/80 px-[18px] pb-4 pt-5">
+          <Image
+            src="/ezrecruit-logo.png"
+            alt="EzRecruit"
+            width={200}
+            height={48}
+            priority
+            className="h-9 w-auto max-w-full object-contain object-left"
+          />
+          <div className="mt-2 text-[11px] text-zinc-500">Email Campaign Platform</div>
+        </div>
+        <nav className="flex flex-1 flex-col gap-0 overflow-y-auto px-2 py-3">
+          <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Main</div>
+          {navMain.map((n) => (
+            <NavBtn key={n.id} {...n} page={page} setPage={setPage} />
+          ))}
+        </nav>
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="flex h-[52px] shrink-0 items-center border-b border-zinc-800/80 bg-zinc-900 px-6">
+          <h1 className="min-w-0 flex-1 truncate text-[15px] font-medium text-zinc-100">
+            {page === "metrics"
+              ? `${PAGE_TITLES.metrics} · ${STAT_METRIC_LABEL[metricTab]}`
+              : PAGE_TITLES[page]}
+          </h1>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-6">
+          {page === "dashboard" && (
+            <DashboardView
+              liveStats={liveStats}
+              statsLoading={statsLoading}
+              statsError={statsError}
+              onOpenMetric={(m) => {
+                setMetricTab(m);
+                setPage("metrics");
+              }}
+            />
+          )}
+          {page === "metrics" && (
+            <MetricEmailListView
+              activeTab={metricTab}
+              sentTotalHint={liveStats?.totals.sent ?? null}
+              onTabChange={setMetricTab}
+              onBack={() => setPage("dashboard")}
+            />
+          )}
+          {page === "compose" && (
+            <ComposeView
+              insertTag={insertTag}
+              editorRef={editorRef}
+              onSend={(draft) => {
+                setCampaignDraft(draft);
+                setSendState("idle");
+                setSendMessage("");
+                setModal("sendConfirm");
+              }}
+            />
+          )}
+          {page === "settings" && <SettingsView />}
+        </main>
+      </div>
+
+      {modal === "sendConfirm" && (
+        <Modal title="Ready to send?" narrow onClose={() => setModal(null)}>
+          {!campaignDraft ? (
+            <p className="mb-4 text-[13px] text-red-300">Campaign details not found. Go back and click Send Campaign again.</p>
+          ) : (
+            <>
+          <p className="mb-4 text-[13px] leading-relaxed text-zinc-400">
+            You are about to send to <strong className="text-zinc-100">{formatInt(campaignDraft.recipients.length)} users</strong>{" "}
+            via SendGrid. This cannot be undone.
+          </p>
+          {sendMessage ? (
+            <div
+              className={`mb-4 rounded-lg px-3.5 py-2.5 text-xs ${
+                sendState === "error"
+                  ? "border border-red-500/30 bg-red-500/10 text-red-200"
+                  : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+              }`}
+            >
+              {sendMessage}
+            </div>
+          ) : null}
+          <div className="flex justify-end gap-2">
+            <Btn size="sm" onClick={() => setModal(null)} disabled={sendState === "sending"}>
+              {sendState === "done" ? "Close" : "Go back"}
+            </Btn>
+            {sendState !== "done" ? (
+              <Btn
+                size="sm"
+                variant="primary"
+                disabled={sendState === "sending"}
+                onClick={async () => {
+                  if (!campaignDraft) return;
+                  try {
+                    setSendState("sending");
+                    setSendMessage("Sending campaign...");
+                    const res = await fetch("/api/sendgrid/send-campaign", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(campaignDraft),
+                    });
+                    const data = (await res.json()) as { message?: string; sentCount?: number; failedCount?: number };
+                    if (!res.ok) {
+                      throw new Error(data.message || "Unable to send campaign.");
+                    }
+                    setSendState("done");
+                    setSendMessage(
+                      `Campaign sent. Success: ${data.sentCount ?? 0}${data.failedCount ? `, Failed: ${data.failedCount}` : ""}.`
+                    );
+                  } catch (err) {
+                    setSendState("error");
+                    setSendMessage(err instanceof Error ? err.message : "Unable to send campaign.");
+                  }
+                }}
+              >
+                {sendState === "sending" ? "Sending..." : "Confirm & Send"}
+              </Btn>
+            ) : null}
+          </div>
+          </>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  onClose,
+  narrow,
+  wide,
+}: {
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+  narrow?: boolean;
+  wide?: boolean;
+}) {
+  const maxW = narrow ? "max-w-[400px]" : wide ? "max-w-[min(96vw,56rem)]" : "max-w-[580px]";
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-4 py-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={`max-h-[85vh] w-full overflow-y-auto rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl ${maxW}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h2 id="modal-title" className="mb-[18px] text-base font-medium text-zinc-100">
+          {title}
+        </h2>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  placeholder,
+  defaultValue,
+  type = "text",
+}: {
+  label: string;
+  placeholder?: string;
+  defaultValue?: string;
+  type?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs text-zinc-400">{label}</span>
+      <input
+        type={type}
+        placeholder={placeholder}
+        defaultValue={defaultValue}
+        className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-sky-600"
+      />
+    </label>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  sub,
+  subClass,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  subClass?: string;
+  onClick?: () => void;
+}) {
+  const inner = (
+    <>
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className="mt-1.5 text-2xl font-medium tracking-tight text-zinc-100">{value}</div>
+      <div className={`mt-1 text-[11px] ${subClass ?? "text-zinc-500"}`}>{sub}</div>
+    </>
+  );
+  const cls =
+    "w-full rounded-xl bg-zinc-800/40 p-4 text-left ring-1 ring-zinc-800/80 transition-colors hover:bg-zinc-800/60 hover:ring-zinc-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/60";
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={cls} aria-label={`View details: ${label}`}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={cls}>{inner}</div>;
+}
+
+function TableShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[13px]">{children}</table>
+    </div>
+  );
+}
+
+function Th({ children }: { children: ReactNode }) {
+  return (
+    <th className="border-b border-zinc-800 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+      {children}
+    </th>
+  );
+}
+
+function Td({
+  children,
+  className = "",
+  colSpan,
+}: {
+  children: ReactNode;
+  className?: string;
+  colSpan?: number;
+}) {
+  return (
+    <td colSpan={colSpan} className={`border-b border-zinc-800/80 px-3 py-2.5 align-middle text-zinc-200 ${className}`}>
+      {children}
+    </td>
+  );
+}
+
+const STAT_METRIC_LABEL: Record<StatMetric, string> = {
+  sent: "Total sent",
+  open: "Opens",
+  click: "Clicks",
+  replies: "Replies",
+  spam: "Spam reports",
+  unsubscribed: "Unsubscribes",
+  undelivered: "Undelivered",
+};
+
+type EmailDetailRow = {
+  name: string;
+  email: string;
+  sentAt: string;
+  company: string;
+  detail: string;
+};
+
+const EMAIL_DETAIL_SEED: Omit<EmailDetailRow, "detail">[] = [
+  {
+    name: "Rahul Sharma",
+    email: "rahul@techcorp.in",
+    sentAt: "2026-04-18T09:15:00",
+    company: "TechCorp",
+  },
+  {
+    name: "Priya Mehta",
+    email: "priya@startup.io",
+    sentAt: "2026-04-17T14:22:00",
+    company: "StartupIO",
+  },
+  {
+    name: "Arjun Nair",
+    email: "arjun@design.co",
+    sentAt: "2026-04-17T11:03:00",
+    company: "DesignCo",
+  },
+  {
+    name: "Sneha Patel",
+    email: "sneha@bigco.com",
+    sentAt: "2026-04-16T16:40:00",
+    company: "BigCo",
+  },
+  {
+    name: "Vikram Singh",
+    email: "vikram@saas.io",
+    sentAt: "2026-04-15T08:55:00",
+    company: "SaaS.io",
+  },
+  {
+    name: "Ananya Roy",
+    email: "ananya@retail.in",
+    sentAt: "2026-04-14T13:10:00",
+    company: "RetailIN",
+  },
+  {
+    name: "Karan Joshi",
+    email: "karan@finance.com",
+    sentAt: "2026-04-12T10:00:00",
+    company: "FinanceCo",
+  },
+  {
+    name: "Neha Kapoor",
+    email: "neha@media.tv",
+    sentAt: "2026-04-10T17:25:00",
+    company: "MediaTV",
+  },
+];
+
+function detailForMetric(metric: StatMetric, i: number): string {
+  const times = ["10:22", "15:08", "11:41", "09:12", "08:30", "14:55", "16:03", "12:18"];
+  const reasons = ["Mailbox full", "Invalid address", "DNS failure", "Blocked", "Deferred timeout"];
+  switch (metric) {
+    case "sent":
+      return "Delivered";
+    case "open":
+      return `Opened ${times[i % times.length]}`;
+    case "click":
+      return `Clicked CTA · ${times[i % times.length]}`;
+    case "replies":
+      return `Replied ${times[i % times.length]}`;
+    case "spam":
+      return `Reported ${times[i % times.length]}`;
+    case "unsubscribed":
+      return `Unsubscribed ${times[i % times.length]}`;
+    case "undelivered":
+      return reasons[i % reasons.length];
+    default:
+      return "—";
+  }
+}
+
+function rowsForMetric(metric: StatMetric): EmailDetailRow[] {
+  return EMAIL_DETAIL_SEED.map((r, i) => ({
+    ...r,
+    detail: detailForMetric(metric, i),
+  }));
+}
+
+function formatSentDisplay(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function defaultDateRangeStrings() {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - 30);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+}
+
+const METRIC_TABS: { id: StatMetric; label: string }[] = [
+  { id: "sent", label: "Total sent" },
+  { id: "open", label: "Opens" },
+  { id: "click", label: "Clicks" },
+  { id: "replies", label: "Replies" },
+  { id: "spam", label: "Spam" },
+  { id: "unsubscribed", label: "Unsubscribes" },
+  { id: "undelivered", label: "Undelivered" },
+];
+
+function detailColumnHeader(metric: StatMetric): string {
+  if (metric === "sent") return "Status";
+  if (metric === "open") return "Open activity";
+  if (metric === "click") return "Click activity";
+  if (metric === "replies") return "Reply";
+  if (metric === "spam") return "Spam flag";
+  if (metric === "unsubscribed") return "Unsubscribe";
+  return "Failure reason";
+}
+
+function MetricEmailListView({
+  activeTab,
+  sentTotalHint,
+  onTabChange,
+  onBack,
+}: {
+  activeTab: StatMetric;
+  sentTotalHint: number | null;
+  onTabChange: (m: StatMetric) => void;
+  onBack: () => void;
+}) {
+  const defaults = defaultDateRangeStrings();
+  const [dateFrom, setDateFrom] = useState(defaults.from);
+  const [dateTo, setDateTo] = useState(defaults.to);
+  const [liveSentRows, setLiveSentRows] = useState<EmailDetailRow[]>([]);
+  const [sentLoading, setSentLoading] = useState(false);
+  const [sentError, setSentError] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  useEffect(() => {
+    if (activeTab !== "sent") return;
+    let cancelled = false;
+    const loadSentRows = async () => {
+      try {
+        setSentLoading(true);
+        setSentError("");
+        const res = await fetch("/api/sendgrid/sent-emails?limit=10000");
+        const data = (await res.json()) as { rows?: EmailDetailRow[]; message?: string };
+        if (!res.ok) throw new Error(data.message || "Unable to fetch sent emails.");
+        if (!cancelled) {
+          setLiveSentRows((data.rows ?? []).filter((r) => !!r.email));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSentError(err instanceof Error ? err.message : "Unable to fetch sent emails.");
+          setLiveSentRows([]);
+        }
+      } finally {
+        if (!cancelled) setSentLoading(false);
+      }
+    };
+    loadSentRows();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab]);
+
+  const allRows = useMemo(() => {
+    if (activeTab === "sent") return liveSentRows;
+    return rowsForMetric(activeTab);
+  }, [activeTab, liveSentRows]);
+
+  const filtered = useMemo(() => {
+    return allRows.filter((r) => {
+      const day = r.sentAt.slice(0, 10);
+      return day >= dateFrom && day <= dateTo;
+    });
+  }, [allRows, dateFrom, dateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedRows = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, pageSize, safePage]);
+
+  const detailHeader = detailColumnHeader(activeTab);
+
+  return (
+    <div>
+      <div className="mb-5">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-[13px] text-zinc-400 transition-colors hover:text-zinc-100"
+        >
+          ← Back to dashboard
+        </button>
+      </div>
+
+      <div className="mb-5 flex gap-0 overflow-x-auto border-b border-zinc-800 pb-px [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {METRIC_TABS.map((tab) => {
+          const on = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onTabChange(tab.id)}
+              className={`shrink-0 border-b-2 px-3 py-2.5 text-[13px] transition-colors sm:px-4 ${
+                on
+                  ? "border-sky-500 font-medium text-sky-400"
+                  : "border-transparent text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <Card>
+        {activeTab === "sent" && (sentLoading || sentError) && (
+          <div
+            className={`mb-3 rounded-lg px-3 py-2 text-xs ${
+              sentError ? "border border-amber-500/30 bg-amber-500/10 text-amber-200" : "border border-zinc-700 bg-zinc-900 text-zinc-400"
+            }`}
+          >
+            {sentLoading ? "Loading sent recipient emails from SendGrid..." : `Using sample rows. ${sentError}`}
+          </div>
+        )}
+        {activeTab === "sent" && !sentLoading && !sentError && sentTotalHint !== null && liveSentRows.length < sentTotalHint && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            SendGrid aggregate stats show {formatInt(sentTotalHint)} sent, but Messages API returned {formatInt(liveSentRows.length)} rows.
+            This usually means message activity retention/plan limits on SendGrid. For full historical recipient-level rows, store Event
+            Webhook data in your database.
+          </div>
+        )}
+        <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-4">
+          <label className="block min-w-[140px]">
+            <span className="mb-1.5 block text-xs text-zinc-400">From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+            />
+          </label>
+          <label className="block min-w-[140px]">
+            <span className="mb-1.5 block text-xs text-zinc-400">To</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+            />
+          </label>
+          <Btn
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              const d = defaultDateRangeStrings();
+              setDateFrom(d.from);
+              setDateTo(d.to);
+            }}
+          >
+            Last 30 days
+          </Btn>
+        </div>
+
+        <TableShell>
+          <thead>
+            <tr>
+              <Th>Name</Th>
+              <Th>Email</Th>
+              <Th>Time sent</Th>
+              <Th>Company</Th>
+              <Th>{detailHeader}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr>
+                <Td className="py-8 text-center text-zinc-500" colSpan={5}>
+                  {activeTab === "sent"
+                    ? sentLoading
+                      ? "Loading sent emails from SendGrid..."
+                      : "No sent emails found for this date range."
+                    : "No rows in this date range. Adjust the filter."}
+                </Td>
+              </tr>
+            ) : (
+              paginatedRows.map((r) => (
+                <tr key={r.email + r.sentAt} className="hover:[&>td]:bg-zinc-800/40">
+                  <Td>{r.name}</Td>
+                  <Td className="font-mono text-xs text-zinc-300">{r.email}</Td>
+                  <Td>{formatSentDisplay(r.sentAt)}</Td>
+                  <Td>{r.company}</Td>
+                  <Td className="text-zinc-400">{r.detail}</Td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </TableShell>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 text-xs text-zinc-500">
+          <div>
+            Showing{" "}
+            <strong className="text-zinc-300">
+              {filtered.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
+              {Math.min(safePage * pageSize, filtered.length)}
+            </strong>{" "}
+            of <strong className="text-zinc-300">{filtered.length}</strong>
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1">
+              <span>Rows</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200 outline-none"
+              >
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+            <Btn size="sm" type="button" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              Prev
+            </Btn>
+            <span className="px-1 text-zinc-400">
+              {safePage}/{totalPages}
+            </span>
+            <Btn
+              size="sm"
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </Btn>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function DashboardView({
+  onOpenMetric,
+  liveStats,
+  statsLoading,
+  statsError,
+}: {
+  onOpenMetric: (m: StatMetric) => void;
+  liveStats: LiveDashboardStats | null;
+  statsLoading: boolean;
+  statsError: string;
+}) {
+  const totals = liveStats?.totals ?? {
+    sent: email50.sent,
+    delivered: email50.delivered,
+    opens: email50.opened,
+    clicks: email50.clicked,
+    replies: email50.replied,
+    spamReports: email50.spamReports,
+    unsubscribed: email50.unsubscribed,
+    undelivered: email50.undelivered,
+    bounces: email50.bounced,
+  };
+
+  const rates = liveStats?.rates ?? rates50;
+
+  const openStr = `${rates.openPct}%`;
+  const clickStr = `${rates.clickPct}%`;
+  const replyStr = `${rates.replyPct}%`;
+  const bounceStr = `${rates.bouncePct}%`;
+  const unsubStr = `${rates.unsubPct}%`;
+  const spamStr = totals.spamReports === 0 ? "0%" : `${rates.spamPct}%`;
+  const undelStr = `${rates.undeliveredPct}%`;
+
+  const activity = liveStats
+    ? [
+        { dot: "bg-sky-500", text: `${formatInt(totals.opens)} opens in last 30 days`, sub: "SendGrid stats API" },
+        {
+          dot: "bg-emerald-500",
+          text: `${formatInt(totals.clicks)} clicks in last 30 days`,
+          sub: "SendGrid stats API",
+        },
+        { dot: "bg-amber-500", text: `${formatInt(totals.replies)} replies tracked`, sub: "Configured as 0 by default" },
+        {
+          dot: "bg-red-500",
+          text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
+          sub: "bounces + blocks + deferred + drops",
+        },
+      ]
+    : activityFeed50;
+
+  return (
+    <>
+      {(statsLoading || statsError) && (
+        <div
+          className={`mb-4 rounded-lg px-3 py-2 text-xs ${
+            statsError ? "border border-amber-500/30 bg-amber-500/10 text-amber-200" : "border border-zinc-700 bg-zinc-900 text-zinc-400"
+          }`}
+        >
+          {statsLoading ? "Loading SendGrid stats..." : `Using sample dashboard data. ${statsError}`}
+        </div>
+      )}
+      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <StatCard
+          label="Total Sent"
+          value={formatInt(totals.sent)}
+          sub={liveStats ? "Last 30 days · SendGrid" : `${CAMPAIGN_DISPLAY_NAME} · last batch`}
+          onClick={() => onOpenMetric("sent")}
+        />
+        <StatCard
+          label="Open Rate"
+          value={openStr}
+          sub={`${formatInt(totals.opens)} opens`}
+          subClass="text-emerald-400/90"
+          onClick={() => onOpenMetric("open")}
+        />
+        <StatCard
+          label="Click Rate"
+          value={clickStr}
+          sub={`${formatInt(totals.clicks)} clicks`}
+          onClick={() => onOpenMetric("click")}
+        />
+        <StatCard
+          label="Replies"
+          value={formatInt(totals.replies)}
+          sub={`${replyStr} of ${formatInt(totals.sent)}`}
+          subClass="text-emerald-400/90"
+          onClick={() => onOpenMetric("replies")}
+        />
+        <StatCard
+          label="Spam"
+          value={spamStr}
+          sub={totals.spamReports === 0 ? "No spam reports" : `${formatInt(totals.spamReports)} reports`}
+          subClass={totals.spamReports === 0 ? "text-zinc-500" : "text-emerald-400/90"}
+          onClick={() => onOpenMetric("spam")}
+        />
+        <StatCard
+          label="Unsubscribed"
+          value={formatInt(totals.unsubscribed)}
+          sub={`${unsubStr} of sends`}
+          onClick={() => onOpenMetric("unsubscribed")}
+        />
+        <StatCard
+          label="Undelivered"
+          value={formatInt(totals.undelivered)}
+          sub={`${undelStr} of sends`}
+          subClass="text-red-400/90"
+          onClick={() => onOpenMetric("undelivered")}
+        />
+      </div>
+
+      <Card className="mb-4">
+        <CardHeader title="Engagement breakdown" />
+        <ChartRow label="Opened" pct={rates.openPct} color="bg-sky-500" val={openStr} />
+        <ChartRow label="Clicked" pct={rates.clickPct} color="bg-emerald-500" val={clickStr} />
+        <ChartRow label="Replied" pct={rates.replyPct} color="bg-amber-500" val={replyStr} />
+        <ChartRow label="Bounced" pct={rates.bouncePct} color="bg-red-500" val={bounceStr} />
+        <ChartRow label="Unsubscribed" pct={Math.max(rates.unsubPct, 0.5)} color="bg-zinc-500" val={unsubStr} />
+      </Card>
+
+      <Card>
+        <CardHeader title="Activity feed" />
+        <ul className="flex flex-col">
+          {activity.map((e, i, arr) => (
+            <li key={i} className="relative flex gap-3 pb-4">
+              {i < arr.length - 1 && (
+                <span
+                  className="absolute left-[5px] top-4 h-[calc(100%-8px)] w-px bg-zinc-800"
+                  aria-hidden
+                />
+              )}
+              <span className={`relative z-[1] mt-0.5 h-3 w-3 shrink-0 rounded-full ${e.dot}`} />
+              <div>
+                <div className="text-[13px] text-zinc-200">{renderBoldCampaign(e.text)}</div>
+                <div className="text-[11px] text-zinc-500">{e.sub}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </>
+  );
+}
+
+function renderBoldCampaign(text: string) {
+  const names = [CAMPAIGN_DISPLAY_NAME, "Summer Sale 2025", "Onboarding Wave 3", "Re-engagement"];
+  for (const n of names) {
+    const idx = text.indexOf(n);
+    if (idx !== -1) {
+      return (
+        <>
+          {text.slice(0, idx)}
+          <strong className="font-medium text-zinc-100">{n}</strong>
+          {text.slice(idx + n.length)}
+        </>
+      );
+    }
+  }
+  return text;
+}
+
+function ChartRow({ label, pct, color, val }: { label: string; pct: number; color: string; val: string }) {
+  return (
+    <div className="mb-2.5 flex items-center gap-2.5">
+      <span className="w-[70px] shrink-0 text-xs text-zinc-400">{label}</span>
+      <div className="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
+        <div className={`h-full rounded ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-10 text-right text-xs font-medium text-zinc-200">{val}</span>
+    </div>
+  );
+}
+
+function Step({
+  n,
+  label,
+  state,
+}: {
+  n: string;
+  label: string;
+  state: "todo" | "active" | "done";
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 text-xs ${
+        state === "active" ? "text-sky-400" : state === "done" ? "text-emerald-400/90" : "text-zinc-500"
+      }`}
+    >
+      <span
+        className={`flex h-6 w-6 items-center justify-center rounded-full border text-[11px] font-medium ${
+          state === "active"
+            ? "border-sky-500 bg-sky-600 text-white"
+            : state === "done"
+              ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+              : "border-zinc-700 text-zinc-500"
+        }`}
+      >
+        {state === "done" ? "✓" : n}
+      </span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function StepLine() {
+  return <div className="mx-2 h-px flex-1 bg-zinc-800" />;
+}
+
+const EDITOR_HTML =
+  "Hi {{name}},<br><br>We have an exciting offer just for you at {{company}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><span style=\"font-size:11px;color:#71717a\">Unsubscribe: {{unsubscribe_link}}</span>";
+
+type PredefinedTemplate = {
+  id: string;
+  label: string;
+  subject: string;
+  body: string;
+};
+
+const PREDEFINED_TEMPLATES: PredefinedTemplate[] = [
+  {
+    id: "tracker-hours",
+    label: "Template 1 · Tracker hours outreach",
+    subject: "How many hours did your team spend on trackers today?",
+    body: `Hi [Name],
+Running a recruitment firm means your best people spend a chunk of every day doing things that aren't recruitment, updating trackers, reconciling feedback from team members and clients.
+We spoke to founders and recruiters at 40+ agencies across India. The number that surprised us most: nearly 60% said tracker creation is non-productive manual work where recruiters end up spending hours every day.
+Not the recruiter's fault. Just how it works without the right system in place.
+Time is cost. If recruiters aren't doing research, it impacts your business outcome.
+If this sounds familiar, I'd be happy to show you how recruitment agencies are fixing it. Would a quick 20-minute call this week make sense?
+www.ezrecruit.ai
+
+Best Regards,
+Rajat Singh
+Global Partnership Lead
+Deeptalent Technologies Pvt.
++91 6300112759 | Rajat@deeptalent.in`,
+  },
+  {
+    id: "scale-without-hiring",
+    label: "Template 2 · Scale without more team",
+    subject: "Scale your agency without scaling your team",
+    body: `Hi [Name],
+Most recruitment agency founders we speak to aren't looking to hire more recruiters. They're looking to get more out of the team they already have.
+The challenge is that a significant part of every recruiter's day goes into work that isn't recruiting — building trackers, chasing feedback, repeating searches that have been done before.
+We spoke to founders and recruiters at 40+ agencies across India. The finding was consistent: when you remove that operational drag, the same team delivers meaningfully more.
+Not by working harder. By wasting less.
+That's exactly what EzRecruit is built for — an ATS designed specifically for recruitment agencies, so your team spends more time placing candidates and less time managing spreadsheets.
+If this sounds like something worth a closer look, I'd love to show you how it works. Would a quick 20-minute call this week make sense?
+www.ezrecruit.ai
+Best Regards,
+Rajat Singh
+Global Partnership Lead
+Deeptalent Technologies Pvt.
++91 6300112759 | Rajat@deeptalent.in`,
+  },
+];
+
+function templateTextToHtml(text: string) {
+  return text
+    .trim()
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\r?\n/g, "<br>");
+}
+
+type RecipientRow = {
+  name: string;
+  email: string;
+  company: string;
+  custom1: string;
+  custom2: string;
+};
+
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      q = !q;
+      continue;
+    }
+    if (!q && c === ",") {
+      out.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  out.push(cur.trim());
+  return out;
+}
+
+function normHeader(s: string) {
+  return s.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+
+function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (!lines.length) return { rows: [], warnings: [] };
+
+  if (!lines[0].includes(",")) {
+    const rows: RecipientRow[] = [];
+    let bad = 0;
+    for (const line of lines) {
+      if (EMAIL_LIKE.test(line)) {
+        rows.push({ name: "", email: line, company: "", custom1: "", custom2: "" });
+      } else bad++;
+    }
+    if (bad) warnings.push(`${bad} line(s) skipped — need a valid email per line when not using CSV.`);
+    return { rows, warnings };
+  }
+
+  const first = parseCsvLine(lines[0]);
+  const keys = first.map(normHeader);
+  const hasHeader =
+    keys.includes("email") ||
+    keys.includes("e-mail") ||
+    (keys.includes("name") && keys.length >= 2);
+
+  let start = 0;
+  let col = { name: 0, email: 1, company: 2, custom1: 3, custom2: 4 };
+
+  if (hasHeader) {
+    const idx = (aliases: string[], fallback: number) => {
+      for (let i = 0; i < keys.length; i++) {
+        if (aliases.includes(keys[i])) return i;
+      }
+      return fallback;
+    };
+    col = {
+      name: idx(["name", "fullname", "full name"], 0),
+      email: idx(["email", "e-mail", "mail"], 1),
+      company: idx(["company", "organization", "org"], 2),
+      custom1: idx(["custom1", "designation", "jobtitle", "title", "job"], 3),
+      custom2: idx(["custom2", "industry"], 4),
+    };
+    start = 1;
+  }
+
+  const rows: RecipientRow[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i]);
+    if (!cells.length) continue;
+    const email = (cells[col.email] ?? "").trim() || (cells[0]?.includes("@") ? cells[0].trim() : "");
+    if (!email) continue;
+    if (!EMAIL_LIKE.test(email)) {
+      warnings.push(`Skipped row ${i + 1}: invalid email "${email.slice(0, 40)}${email.length > 40 ? "…" : ""}"`);
+      continue;
+    }
+    rows.push({
+      name: (cells[col.name] ?? "").trim(),
+      email,
+      company: (cells[col.company] ?? "").trim(),
+      custom1: (cells[col.custom1] ?? "").trim(),
+      custom2: (cells[col.custom2] ?? "").trim(),
+    });
+  }
+
+  if (!rows.length && lines.length > start) warnings.push("No valid rows found. Include an email column or one email per line.");
+  return { rows, warnings };
+}
+
+function ComposeView({
+  insertTag,
+  editorRef,
+  onSend,
+}: {
+  insertTag: (t: string) => void;
+  editorRef: RefObject<HTMLDivElement | null>;
+  onSend: (draft: CampaignDraft) => void;
+}) {
+  type ComposeStep = 1 | 2 | 3 | 4;
+  const tags = ["{{name}}", "{{email}}", "{{company}}", "{{designation}}"];
+
+  const [step, setStep] = useState<ComposeStep>(1);
+  const [recipientRaw, setRecipientRaw] = useState("");
+  const [recipientRows, setRecipientRows] = useState<RecipientRow[]>([]);
+  const [recipientWarnings, setRecipientWarnings] = useState<string[]>([]);
+  const [fromName, setFromName] = useState("");
+  const [fromEmail, setFromEmail] = useState("");
+  const [replyToEmail, setReplyToEmail] = useState("");
+  const [subject, setSubject] = useState("");
+  const [formError, setFormError] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewSourceHtml, setPreviewSourceHtml] = useState("");
+  const [editorHtml, setEditorHtml] = useState(EDITOR_HTML);
+  const [isEditorLight, setIsEditorLight] = useState(false);
+  const [showRecipientsModal, setShowRecipientsModal] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const csvFileRef = useRef<HTMLInputElement>(null);
+  const editorImageRef = useRef<HTMLInputElement>(null);
+  const editorHtmlRef = useRef<string>(EDITOR_HTML);
+  const selectedImageRef = useRef<HTMLImageElement | null>(null);
+  const draggingImageRef = useRef<HTMLImageElement | null>(null);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+
+  const loadRecipientsFromText = useCallback((raw: string) => {
+    const { rows, warnings } = parseRecipientsCsv(raw);
+    setRecipientRows(rows);
+    setRecipientWarnings(warnings);
+  }, []);
+
+  const updateRecipientField = useCallback(
+    (index: number, field: keyof RecipientRow, value: string) => {
+      setRecipientRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+    },
+    []
+  );
+
+  const deleteRecipientRow = useCallback((index: number) => {
+    setRecipientRows((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const applySelectedTemplate = useCallback(() => {
+    const picked = PREDEFINED_TEMPLATES.find((t) => t.id === selectedTemplateId);
+    if (!picked) return;
+    const html = templateTextToHtml(picked.body);
+    setSubject(picked.subject);
+    setShowPreview(false);
+    setPreviewSourceHtml(html);
+    setEditorHtml(html);
+    editorHtmlRef.current = html;
+    const editor = editorRef.current;
+    if (editor) {
+      editor.innerHTML = html;
+    }
+  }, [editorRef, selectedTemplateId]);
+
+  const insertSubjectPlaceholder = useCallback((placeholder: string) => {
+    const input = subjectInputRef.current;
+    if (!input) {
+      setSubject((prev) => `${prev}${placeholder}`);
+      return;
+    }
+    const start = input.selectionStart ?? subject.length;
+    const end = input.selectionEnd ?? subject.length;
+    const next = `${subject.slice(0, start)}${placeholder}${subject.slice(end)}`;
+    setSubject(next);
+    requestAnimationFrame(() => {
+      input.focus();
+      const caret = start + placeholder.length;
+      input.setSelectionRange(caret, caret);
+    });
+  }, [subject]);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const initialHtml = editorHtml || EDITOR_HTML;
+    if (el.innerHTML !== initialHtml) {
+      el.innerHTML = initialHtml;
+    }
+  }, [editorHtml, editorRef]);
+
+  const sendCampaign = useCallback(() => {
+    const html = (editorRef.current?.innerHTML || editorHtml).trim();
+    if (!fromEmail.trim() || !replyToEmail.trim()) {
+      setFormError("From email and reply-to email are required.");
+      return;
+    }
+    if (!subject.trim()) {
+      setFormError("Subject line is required.");
+      return;
+    }
+    if (!html) {
+      setFormError("Email body cannot be empty.");
+      return;
+    }
+    if (recipientRows.length === 0) {
+      setFormError("Add at least one valid recipient before sending.");
+      return;
+    }
+    setFormError("");
+    onSend({
+      fromName: fromName.trim() || "Team",
+      fromEmail: fromEmail.trim(),
+      replyToEmail: replyToEmail.trim(),
+      subject: subject.trim(),
+      html,
+      recipients: recipientRows,
+    });
+  }, [editorHtml, editorRef, fromEmail, fromName, onSend, recipientRows, replyToEmail, subject]);
+
+  const goNext = useCallback(() => {
+    setFormError("");
+    if (step === 3) {
+      if (showPreview) {
+        setEditorHtml(previewSourceHtml);
+        editorHtmlRef.current = previewSourceHtml;
+      } else {
+        const html = editorRef.current?.innerHTML ?? "";
+        setEditorHtml(html);
+        editorHtmlRef.current = html;
+      }
+    }
+    setStep((prev) => (prev < 4 ? ((prev + 1) as ComposeStep) : prev));
+  }, [editorRef, previewSourceHtml, showPreview, step]);
+
+  const goBack = useCallback(() => {
+    setFormError("");
+    setStep((prev) => (prev > 1 ? ((prev - 1) as ComposeStep) : prev));
+  }, []);
+
+  const stepState = (n: ComposeStep): "todo" | "active" | "done" => {
+    if (step === n) return "active";
+    if (step > n) return "done";
+    return "todo";
+  };
+  const previewRecipient = useMemo<RecipientRow | null>(() => recipientRows[0] ?? null, [recipientRows]);
+
+  const resolvePreviewPlaceholders = useCallback((input: string, row: RecipientRow) => {
+    const normalize = (key: string) => key.trim().toLowerCase().replace(/[\s_-]+/g, "");
+    const values: Record<string, string> = {
+      name: row.name ?? "",
+      email: row.email ?? "",
+      company: row.company ?? "",
+      custom1: row.custom1 ?? "",
+      custom2: row.custom2 ?? "",
+      designation: row.custom1 ?? "",
+      unsubscribelink: "#",
+      unsubscribe: "#",
+    };
+    const getValue = (rawKey: string) => values[normalize(rawKey)] ?? "";
+    return input
+      .replace(/\{\{([^}]+)\}\}/g, (_, key: string) => getValue(key))
+      .replace(/\[([^\]]+)\]/g, (_, key: string) => getValue(key));
+  }, []);
+  const resolvedPreviewHtml = useMemo(() => {
+    if (!previewRecipient) return "";
+    return resolvePreviewPlaceholders(previewSourceHtml, previewRecipient);
+  }, [previewRecipient, previewSourceHtml, resolvePreviewPlaceholders]);
+
+  const editorPaneClass = isEditorLight
+    ? "min-h-[180px] rounded-b-lg border border-zinc-300 bg-white px-3 py-3 text-[13px] leading-relaxed text-zinc-900 outline-none focus:border-sky-600"
+    : "min-h-[180px] rounded-b-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-[13px] leading-relaxed text-zinc-200 outline-none focus:border-sky-600";
+
+  const syncEditorHtml = useCallback(() => {
+    requestAnimationFrame(() => {
+      setEditorHtml(editorRef.current?.innerHTML || "");
+    });
+  }, [editorRef]);
+
+  const flushEditorHtml = useCallback(() => {
+    const html = editorRef.current?.innerHTML ?? "";
+    setEditorHtml(html);
+    editorHtmlRef.current = html;
+  }, [editorRef]);
+
+  const onToolbarClick = useCallback(
+    (action: string) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.focus();
+      if (action === "Preview") {
+        flushEditorHtml();
+        setPreviewSourceHtml(editor.innerHTML);
+        setShowPreview((prev) => !prev);
+        return;
+      }
+      setShowPreview(false);
+      if (action === "B") {
+        document.execCommand("bold");
+        syncEditorHtml();
+        return;
+      }
+      if (action === "I") {
+        document.execCommand("italic");
+        syncEditorHtml();
+        return;
+      }
+      if (action === "U") {
+        document.execCommand("underline");
+        syncEditorHtml();
+        return;
+      }
+      if (action === "H1") {
+        document.execCommand("formatBlock", false, "h1");
+        syncEditorHtml();
+        return;
+      }
+      if (action === "H2") {
+        document.execCommand("formatBlock", false, "h2");
+        syncEditorHtml();
+        return;
+      }
+      if (action === "Link") {
+        const url = window.prompt("Enter link URL", "https://");
+        if (!url) return;
+        document.execCommand("createLink", false, url.trim());
+        syncEditorHtml();
+        return;
+      }
+      if (action === "Image") {
+        editorImageRef.current?.click();
+        return;
+      }
+      if (action === "Image -") {
+        const image = selectedImageRef.current;
+        if (!image) return;
+        const current = parseInt(image.style.width || `${image.clientWidth || 320}`, 10);
+        const next = Math.max(80, Math.round(current * 0.9));
+        image.style.width = `${next}px`;
+        image.style.height = "auto";
+        flushEditorHtml();
+        return;
+      }
+      if (action === "Image +") {
+        const image = selectedImageRef.current;
+        if (!image) return;
+        const current = parseInt(image.style.width || `${image.clientWidth || 320}`, 10);
+        const next = Math.min(1200, Math.round(current * 1.1));
+        image.style.width = `${next}px`;
+        image.style.height = "auto";
+        flushEditorHtml();
+        return;
+      }
+      if (action === "Button") {
+        const buttonUrl = window.prompt("Enter button URL", "https://");
+        if (!buttonUrl) return;
+        const buttonText = window.prompt("Button text", "Learn more") || "Learn more";
+        insertHtmlAtCursor(
+          editor,
+          `<a href="${buttonUrl.trim()}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:10px 16px;background:#0284c7;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">${buttonText}</a>`
+        );
+        syncEditorHtml();
+        return;
+      }
+      if (action === "Divider") {
+        insertHtmlAtCursor(editor, `<hr style="border:none;border-top:1px solid #3f3f46;margin:16px 0;" />`);
+        syncEditorHtml();
+        return;
+      }
+    },
+    [editorRef, flushEditorHtml, syncEditorHtml]
+  );
+
+  const rangeFromPoint = useCallback((x: number, y: number) => {
+    const doc = document as Document & {
+      caretRangeFromPoint?: (cx: number, cy: number) => Range | null;
+      caretPositionFromPoint?: (cx: number, cy: number) => { offsetNode: Node; offset: number } | null;
+    };
+    if (doc.caretRangeFromPoint) return doc.caretRangeFromPoint(x, y);
+    if (doc.caretPositionFromPoint) {
+      const pos = doc.caretPositionFromPoint(x, y);
+      if (!pos) return null;
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      return range;
+    }
+    return null;
+  }, []);
+
+  const onEditorDragStart = useCallback((e: DragEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName !== "IMG") return;
+    const img = target as HTMLImageElement;
+    draggingImageRef.current = img;
+    img.style.opacity = "0.6";
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "email-editor-image");
+  }, []);
+
+  const onEditorDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      const dragged = draggingImageRef.current;
+      const editor = editorRef.current;
+      if (!dragged || !editor) return;
+      e.preventDefault();
+      const dropRange = rangeFromPoint(e.clientX, e.clientY);
+      if (!dropRange || !editor.contains(dropRange.commonAncestorContainer)) {
+        dragged.style.opacity = "1";
+        draggingImageRef.current = null;
+        return;
+      }
+      dropRange.deleteContents();
+      dropRange.insertNode(dragged);
+      dropRange.setStartAfter(dragged);
+      dropRange.collapse(true);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(dropRange);
+      }
+      dragged.style.opacity = "1";
+      draggingImageRef.current = null;
+      selectedImageRef.current = dragged;
+      flushEditorHtml();
+    },
+    [editorRef, flushEditorHtml, rangeFromPoint]
+  );
+
+  const onEditorDragEnd = useCallback(() => {
+    const dragged = draggingImageRef.current;
+    if (!dragged) return;
+    dragged.style.opacity = "1";
+    draggingImageRef.current = null;
+  }, []);
+
+  return (
+    <>
+      <input
+        ref={editorImageRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = typeof reader.result === "string" ? reader.result : "";
+            if (!result) return;
+            insertHtmlAtCursor(
+              editorRef.current,
+              `<img src="${result}" alt="${file.name || "Campaign image"}" draggable="true" style="max-width:100%;height:auto;border-radius:8px;cursor:grab;" />`
+            );
+            syncEditorHtml();
+          };
+          reader.readAsDataURL(file);
+          e.target.value = "";
+        }}
+      />
+      <div className="mb-6 flex flex-wrap items-center gap-0">
+        <Step n="1" label="Sender" state={stepState(1)} />
+        <StepLine />
+        <Step n="2" label="Recipients" state={stepState(2)} />
+        <StepLine />
+        <Step n="3" label="Template" state={stepState(3)} />
+        <StepLine />
+        <Step n="4" label="Review & Send" state={stepState(4)} />
+      </div>
+
+      {step === 1 && (
+        <Card className="mb-4">
+          <h3 className="mb-4 text-sm font-medium text-zinc-100">Sender & subject details</h3>
+          <div className="mb-3.5 grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">From name</span>
+              <input
+                type="text"
+                value={fromName}
+                onChange={(e) => setFromName(e.target.value)}
+                placeholder="Enter sender name"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">From email</span>
+              <input
+                type="email"
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="Enter sender email"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+              />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">Reply-to email</span>
+              <input
+                type="email"
+                value={replyToEmail}
+                onChange={(e) => setReplyToEmail(e.target.value)}
+                placeholder="Enter reply-to email"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+              />
+            </label>
+          </div>
+        </Card>
+      )}
+
+      {step === 2 && (
+        <Card className="mb-4">
+        <h3 className="mb-1.5 text-sm font-medium text-zinc-100">Recipients</h3>
+        <input
+          ref={csvFileRef}
+          type="file"
+          accept=".csv,text/csv,text/plain"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              const t = typeof reader.result === "string" ? reader.result : "";
+              setRecipientRaw(t);
+              loadRecipientsFromText(t);
+            };
+            reader.readAsText(f);
+            e.target.value = "";
+          }}
+        />
+        <div className="mb-3 flex flex-wrap gap-2">
+          <Btn size="sm" type="button" onClick={() => csvFileRef.current?.click()}>
+            Upload CSV
+          </Btn>
+          <Btn size="sm" type="button" onClick={() => window.open("/sample-recipients.csv", "_blank")}>
+            Download sample CSV
+          </Btn>
+          <Btn size="sm" variant="primary" type="button" onClick={() => loadRecipientsFromText(recipientRaw)}>
+            Load into table
+          </Btn>
+          <Btn
+            size="sm"
+            type="button"
+            onClick={() => {
+              setRecipientRaw("");
+              setRecipientRows([]);
+              setRecipientWarnings([]);
+            }}
+          >
+            Clear
+          </Btn>
+        </div>
+        {recipientWarnings.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {recipientWarnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
+          </div>
+        )}
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Preview</div>
+        <div className="max-h-[280px] overflow-auto rounded-lg border border-zinc-800">
+          <TableShell>
+            <thead className="sticky top-0 z-[1] bg-zinc-900">
+              <tr>
+                <Th>Name</Th>
+                <Th>Email</Th>
+                <Th>Company</Th>
+                <Th>Designation</Th>
+                <Th>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {recipientRows.length === 0 ? (
+                <tr>
+                  <Td colSpan={5} className="py-8 text-center text-zinc-500">
+                    No recipients yet. Paste data and click <strong className="text-zinc-400">Load into table</strong>.
+                  </Td>
+                </tr>
+              ) : (
+                recipientRows.map((r, i) => (
+                  <tr key={`recipient-row-${i}`} className="hover:[&>td]:bg-zinc-800/40">
+                    <Td>
+                      <input
+                        type="text"
+                        value={r.name}
+                        onChange={(e) => updateRecipientField(i, "name", e.target.value)}
+                        className="w-full min-w-[140px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100 outline-none focus:border-sky-600"
+                        placeholder="Name"
+                      />
+                    </Td>
+                    <Td className="font-mono text-xs text-zinc-300">
+                      <input
+                        type="email"
+                        value={r.email}
+                        onChange={(e) => updateRecipientField(i, "email", e.target.value)}
+                        className="w-full min-w-[190px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100 outline-none focus:border-sky-600"
+                        placeholder="Email"
+                      />
+                    </Td>
+                    <Td>
+                      <input
+                        type="text"
+                        value={r.company}
+                        onChange={(e) => updateRecipientField(i, "company", e.target.value)}
+                        className="w-full min-w-[130px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100 outline-none focus:border-sky-600"
+                        placeholder="Company"
+                      />
+                    </Td>
+                    <Td>
+                      <input
+                        type="text"
+                        value={r.custom1}
+                        onChange={(e) => updateRecipientField(i, "custom1", e.target.value)}
+                        className="w-full min-w-[130px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100 outline-none focus:border-sky-600"
+                        placeholder="Designation"
+                      />
+                    </Td>
+                    <Td className="w-[96px]">
+                      <Btn size="sm" type="button" onClick={() => deleteRecipientRow(i)}>
+                        Delete
+                      </Btn>
+                    </Td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </TableShell>
+        </div>
+        </Card>
+      )}
+
+      {step === 3 && (
+        <Card className="mb-4">
+          <label className="mb-4 block">
+            <span className="mb-1.5 block text-xs text-zinc-400">Use a predefined template</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="min-w-[280px] rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              >
+                <option value="">Select a template...</option>
+                {PREDEFINED_TEMPLATES.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.label}
+                  </option>
+                ))}
+              </select>
+              <Btn size="sm" variant="primary" type="button" onClick={applySelectedTemplate} disabled={!selectedTemplateId}>
+                Load template
+              </Btn>
+            </div>
+          </label>
+          <label className="mb-4 block">
+            <span className="mb-1.5 block text-xs text-zinc-400">Subject line (supports placeholders)</span>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-zinc-500">Insert field:</span>
+              {["{{name}}", "{{email}}", "{{company}}", "{{designation}}"].map((field) => (
+                <button
+                  key={field}
+                  type="button"
+                  onClick={() => insertSubjectPlaceholder(field)}
+                  className="rounded bg-sky-500/15 px-2 py-0.5 font-mono text-[11px] text-sky-300 transition-colors hover:bg-sky-500/25"
+                >
+                  {field}
+                </button>
+              ))}
+            </div>
+            <input
+              ref={subjectInputRef}
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Enter subject (supports placeholders)"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+            />
+          </label>
+          <h3 className="mb-1.5 text-sm font-medium text-zinc-100">Email body</h3>
+          <p className="mb-2.5 text-xs text-zinc-500">Click a placeholder to insert into editor</p>
+          <div className="flex flex-wrap gap-1.5">
+          {tags.map((t) => {
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  insertTag(t);
+                  syncEditorHtml();
+                }}
+                className="cursor-pointer rounded bg-sky-500/15 px-2 py-0.5 font-mono text-xs text-sky-300 transition-colors hover:bg-sky-500/25"
+              >
+              {t}
+              </button>
+            );
+          })}
+          </div>
+          <div className="mt-3">
+            <div className="flex flex-wrap gap-1 rounded-t-lg border border-b-0 border-zinc-700 bg-zinc-800/50 p-2">
+              {["B", "I", "U", "H1", "H2", "Link", "Image", "Image -", "Image +", "Button", "Divider", "Preview"].map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => onToolbarClick(b)}
+                  className={`rounded border border-transparent px-2 py-1 text-xs text-zinc-400 hover:border-zinc-700 hover:bg-zinc-900 ${
+                    b === "B" ? "font-bold" : ""
+                  } ${b === "I" ? "italic" : ""} ${b === "U" ? "underline" : ""}`}
+                >
+                  {b === "Preview" ? (showPreview ? "Edit" : "Preview") : b}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setIsEditorLight((prev) => !prev)}
+                className="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
+              >
+                {isEditorLight ? "Dark" : "White"}
+              </button>
+            </div>
+            {showPreview ? (
+              <div
+                className={editorPaneClass}
+                dangerouslySetInnerHTML={{ __html: resolvedPreviewHtml }}
+              />
+            ) : (
+              <div
+                ref={editorRef}
+                contentEditable
+                suppressContentEditableWarning
+                onDragStart={onEditorDragStart}
+                onDragOver={(e) => {
+                  if (draggingImageRef.current) e.preventDefault();
+                }}
+                onDrop={onEditorDrop}
+                onDragEnd={onEditorDragEnd}
+                onClick={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (target.tagName === "IMG") {
+                    selectedImageRef.current = target as HTMLImageElement;
+                    return;
+                  }
+                  selectedImageRef.current = null;
+                }}
+                onInput={() => {
+                  if (formError) setFormError("");
+                  setEditorHtml(editorRef.current?.innerHTML || "");
+                }}
+                className={editorPaneClass}
+              />
+            )}
+          </div>
+        </Card>
+      )}
+
+      {step === 4 && (
+        <Card className="mb-4">
+          <h3 className="mb-4 text-sm font-medium text-zinc-100">Review & Send</h3>
+          <div className="space-y-2 text-[13px] text-zinc-300">
+            <div>
+              From: <strong className="text-zinc-100">{fromName || "Team"}</strong> &lt;
+              <span className="text-zinc-100">{fromEmail || "missing-from-email"}</span>&gt;
+            </div>
+            <div>
+              Reply-to: <span className="text-zinc-100">{replyToEmail || "missing-reply-to"}</span>
+            </div>
+            <div>
+              Subject:{" "}
+              <span className="text-zinc-100">
+                {previewRecipient
+                  ? resolvePreviewPlaceholders(subject || "missing-subject", previewRecipient)
+                  : (subject || "missing-subject")}
+              </span>
+            </div>
+            <div>
+              Recipients loaded:
+              {" "}
+              <button
+                type="button"
+                onClick={() => setShowRecipientsModal(true)}
+                className="font-semibold text-sky-400 underline-offset-2 hover:underline"
+              >
+                {recipientRows.length}
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-950">
+            <div
+              className="px-3 py-3 text-[13px] leading-relaxed text-zinc-200"
+              dangerouslySetInnerHTML={{
+                __html: previewRecipient ? resolvePreviewPlaceholders(editorHtml, previewRecipient) : editorHtml,
+              }}
+            />
+          </div>
+          {formError ? (
+            <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+              {formError}
+            </div>
+          ) : null}
+          <div className="mt-4 flex justify-end gap-2.5">
+            <Btn variant="primary" onClick={sendCampaign}>
+              Send Campaign
+            </Btn>
+          </div>
+        </Card>
+      )}
+
+      {showRecipientsModal && (
+        <Modal title={`Recipients (${recipientRows.length})`} wide onClose={() => setShowRecipientsModal(false)}>
+          {recipientRows.length === 0 ? (
+            <p className="text-sm text-zinc-400">No recipients loaded.</p>
+          ) : (
+            <div className="max-h-[55vh] overflow-auto rounded-lg border border-zinc-800">
+              <TableShell>
+                <thead className="sticky top-0 z-[1] bg-zinc-900">
+                  <tr>
+                    <Th>Name</Th>
+                    <Th>Email</Th>
+                    <Th>Company</Th>
+                    <Th>Designation</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recipientRows.map((r, i) => (
+                    <tr key={`review-recipient-${i}`} className="hover:[&>td]:bg-zinc-800/40">
+                      <Td>{r.name || "—"}</Td>
+                      <Td className="font-mono text-xs text-zinc-300">{r.email}</Td>
+                      <Td>{r.company || "—"}</Td>
+                      <Td>{r.custom1 || "—"}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableShell>
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <Btn size="sm" onClick={() => setShowRecipientsModal(false)}>
+              Close
+            </Btn>
+          </div>
+        </Modal>
+      )}
+
+      <div className="flex items-center justify-between gap-2">
+        <Btn size="sm" disabled={step === 1} onClick={goBack}>
+          Back
+        </Btn>
+        {step < 4 ? (
+          <Btn size="sm" variant="primary" onClick={goNext}>
+            Next
+          </Btn>
+        ) : (
+          <div />
+        )}
+      </div>
+    </>
+  );
+}
+
+function ToggleRow({ title, desc, defaultOn }: { title: string; desc: string; defaultOn?: boolean }) {
+  const [on, setOn] = useState(!!defaultOn);
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-zinc-800 py-3.5 last:border-b-0">
+      <div>
+        <div className="text-[13px] font-medium text-zinc-100">{title}</div>
+        <div className="text-xs text-zinc-500">{desc}</div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => setOn(!on)}
+        className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors ${
+          on ? "bg-sky-600" : "bg-zinc-700"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-[left] ${
+            on ? "left-[19px]" : "left-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+function SettingsView() {
+  return (
+    <>
+      <Card className="mb-4">
+        <h3 className="mb-[18px] text-sm font-medium text-zinc-100">SendGrid API Configuration</h3>
+        <label className="mb-3.5 block">
+          <span className="mb-1.5 block text-xs text-zinc-400">SendGrid API Key</span>
+          <input
+            type="text"
+            defaultValue="SG.••••••••••••••••••••••••••"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+          />
+        </label>
+        <div className="mb-3.5 grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
+          <Field label="Default from name" placeholder="Ravi Kumar" />
+          <label className="block">
+            <span className="mb-1.5 block text-xs text-zinc-400">Default from email</span>
+            <input
+              type="email"
+              defaultValue="ravi@mycompany.io"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+            />
+          </label>
+        </div>
+        <label className="mb-1.5 block">
+          <span className="mb-1.5 block text-xs text-zinc-400">Default reply-to email</span>
+          <input
+            type="email"
+            defaultValue="replies@mycompany.io"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
+          />
+        </label>
+        <div className="mt-2">
+          <Btn size="sm" variant="primary">
+            Save API Settings
+          </Btn>
+        </div>
+      </Card>
+
+      <Card className="mb-4">
+        <h3 className="mb-4 text-sm font-medium text-zinc-100">Tracking & Webhooks</h3>
+        <ToggleRow title="Open tracking" desc="Track when recipients open your emails" defaultOn />
+        <ToggleRow title="Click tracking" desc="Track link clicks inside emails" defaultOn />
+        <ToggleRow title="Reply tracking (Inbound Parse)" desc="Capture replies via SendGrid inbound parse" defaultOn />
+        <ToggleRow title="Unsubscribe handling" desc="Auto-add {{unsubscribe_link}} to every email" defaultOn />
+        <ToggleRow title="Bounce auto-removal" desc="Remove hard bounces from lists automatically" />
+      </Card>
+
+      <Card>
+        <h3 className="mb-3.5 text-sm font-medium text-zinc-100">Custom placeholders</h3>
+        <p className="mb-3 text-[13px] text-zinc-400">
+          Define extra placeholder fields for your contacts. These map to columns in your CSV imports.
+        </p>
+        <div className="mb-3.5 grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
+          <Field label="Placeholder 1 key" defaultValue="custom1" />
+          <Field label="Label" defaultValue="Job Title" />
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
+          <Field label="Placeholder 2 key" defaultValue="custom2" />
+          <Field label="Label" defaultValue="Industry" />
+        </div>
+        <Btn size="sm" variant="primary">
+          Save placeholders
+        </Btn>
+      </Card>
+    </>
+  );
+}
