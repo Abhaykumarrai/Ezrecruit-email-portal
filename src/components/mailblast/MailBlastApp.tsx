@@ -12,6 +12,7 @@ import {
   useCallback,
   type DragEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -237,7 +238,209 @@ function insertHtmlAtCursor(editor: HTMLDivElement | null, html: string) {
   document.execCommand("insertHTML", false, html);
 }
 
+function OpeningSplashMarketingStrip() {
+  const igGradientId = `opening-splash-ig-${useId().replace(/:/g, "")}`;
+
+  const channels: { label: string; node: ReactNode }[] = [
+    {
+      label: "Gmail",
+      node: (
+        <svg className="h-9 w-9 shrink-0" viewBox="0 0 24 24" aria-hidden>
+          <path
+            fill="#EA4335"
+            d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-4.909V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-2.023 2.455-3.178 4.09-1.997L12 8.637l7.91-5.177c1.635-1.181 4.09-.026 4.09 1.997z"
+          />
+        </svg>
+      ),
+    },
+    {
+      label: "LinkedIn",
+      node: (
+        <svg className="h-9 w-9 shrink-0" viewBox="0 0 24 24" aria-hidden>
+          <path
+            fill="#0A66C2"
+            d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 1 1 0-4.124 2.062 2.062 0 0 1 0 4.124zm1.782 13.019H3.555V9h3.564v11.452z"
+          />
+        </svg>
+      ),
+    },
+    {
+      label: "Meta",
+      node: (
+        <svg className="h-9 w-9 shrink-0" viewBox="0 0 24 24" aria-hidden>
+          <path
+            fill="#1877F2"
+            d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"
+          />
+        </svg>
+      ),
+    },
+    {
+      label: "Instagram",
+      node: (
+        <svg className="h-9 w-9 shrink-0" viewBox="0 0 24 24" aria-hidden>
+          <defs>
+            <linearGradient id={igGradientId} x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#f09433" />
+              <stop offset="45%" stopColor="#e6683c" />
+              <stop offset="100%" stopColor="#bc1888" />
+            </linearGradient>
+          </defs>
+          <path
+            fill={`url(#${igGradientId})`}
+            d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"
+          />
+        </svg>
+      ),
+    },
+    {
+      label: "X",
+      node: (
+        <svg className="h-8 w-8 shrink-0 text-white" viewBox="0 0 24 24" aria-hidden fill="currentColor">
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+        </svg>
+      ),
+    },
+  ];
+
+  return (
+    <div
+      className="relative z-10 mx-auto mt-8 flex max-w-lg flex-wrap items-center justify-center gap-5 sm:gap-6"
+      style={{
+        animation: "opening-splash-icons-row 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.45s both",
+      }}
+    >
+      <span className="sr-only">Marketing channels: Gmail, LinkedIn, Meta, Instagram, and X.</span>
+      {channels.map(({ label, node }, i) => (
+        <div
+          key={label}
+          title={label}
+          className="relative flex h-[56px] w-[56px] shrink-0 items-center justify-center rounded-2xl border border-white/25 bg-zinc-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_14px_36px_rgba(0,0,0,0.65)]"
+        >
+          <div
+            className="flex items-center justify-center"
+            style={{
+              animation: `opening-splash-icon-motion ${2.35 + (i % 3) * 0.32}s ease-in-out infinite`,
+              animationDelay: `${0.55 + i * 0.1}s`,
+            }}
+          >
+            {node}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OpeningSplash({ onFinish }: { onFinish: () => void }) {
+  const [phase, setPhase] = useState<"in" | "out">("in");
+  const finished = useRef(false);
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
+
+  const complete = useCallback(() => {
+    if (finished.current) return;
+    finished.current = true;
+    setPhase("out");
+    window.setTimeout(() => onFinishRef.current(), 480);
+  }, []);
+
+  useEffect(() => {
+    const t = window.setTimeout(complete, 4200);
+    return () => {
+      window.clearTimeout(t);
+    };
+  }, [complete]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="EzRecruit ReachBox welcome"
+      className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-zinc-950 transition-opacity duration-[480ms] ease-in-out ${
+        phase === "out" ? "pointer-events-none opacity-0" : "opacity-100"
+      }`}
+    >
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_45%,rgba(14,165,233,0.16),transparent_55%)]"
+        style={{ animation: "opening-splash-glow 2.8s ease-in-out infinite" }}
+      />
+      <div className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-gradient-to-r from-transparent via-sky-500/25 to-transparent" />
+
+      <div className="relative z-10 px-6 text-center">
+        <div className="flex flex-row flex-wrap items-baseline justify-center gap-0 text-[clamp(2rem,6vw,3.25rem)] font-bold italic leading-none tracking-tight">
+          <span
+            className="inline-block opacity-0 will-change-transform"
+            style={{
+              animation: "opening-splash-from-left 0.92s cubic-bezier(0.22, 1, 0.36, 1) 0.06s forwards",
+            }}
+          >
+            <span className="bg-gradient-to-br from-sky-300 to-sky-500 bg-clip-text text-transparent">Ez</span>
+          </span>
+          <span
+            className="inline-block opacity-0 will-change-transform"
+            style={{
+              animation: "opening-splash-from-right 0.92s cubic-bezier(0.22, 1, 0.36, 1) 0.14s forwards",
+            }}
+          >
+            <span className="text-white">Recruit</span>
+          </span>
+        </div>
+
+        <div className="mt-4 flex flex-row flex-wrap items-baseline justify-center gap-0 text-[clamp(1.35rem,4vw,2rem)] font-semibold italic tracking-tight">
+          <span
+            className="inline-block opacity-0 will-change-transform"
+            style={{
+              animation: "opening-splash-from-above 0.88s cubic-bezier(0.22, 1, 0.36, 1) 0.38s forwards",
+            }}
+          >
+            <span className="bg-gradient-to-br from-sky-300 to-sky-500 bg-clip-text text-transparent">Reach</span>
+          </span>
+          <span
+            className="inline-block opacity-0 will-change-transform"
+            style={{
+              animation: "opening-splash-from-below 0.88s cubic-bezier(0.22, 1, 0.36, 1) 0.5s forwards",
+            }}
+          >
+            <span className="text-amber-100 drop-shadow-[0_0_24px_rgba(251,191,36,0.35)]">Box</span>
+          </span>
+        </div>
+
+        <OpeningSplashMarketingStrip />
+
+        <p className="mt-10 flex flex-wrap items-baseline justify-center gap-x-2.5 gap-y-1 px-2 text-[15px] font-semibold leading-snug tracking-wide text-zinc-100 drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-[17px]">
+          <span
+            className="inline-block opacity-0 will-change-transform text-zinc-50"
+            style={{
+              animation: "opening-splash-from-bottom-left 0.75s cubic-bezier(0.22, 1, 0.36, 1) 1.05s forwards",
+            }}
+          >
+            EzRecruit
+          </span>
+          <span
+            className="inline-block opacity-0 will-change-transform text-sky-400"
+            style={{
+              animation: "opening-splash-from-above 0.75s cubic-bezier(0.22, 1, 0.36, 1) 1.14s forwards",
+            }}
+          >
+            Marketing
+          </span>
+          <span
+            className="inline-block opacity-0 will-change-transform text-zinc-200"
+            style={{
+              animation: "opening-splash-from-top-right 0.75s cubic-bezier(0.22, 1, 0.36, 1) 1.22s forwards",
+            }}
+          >
+            Platform
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function MailBlastApp() {
+  const [openingSplash, setOpeningSplash] = useState(true);
   const [page, setPage] = useState<PageId>("dashboard");
   const [metricTab, setMetricTab] = useState<StatMetric>("sent");
   const [modal, setModal] = useState<ModalId>(null);
@@ -279,7 +482,9 @@ export function MailBlastApp() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-950 font-sans text-zinc-100">
+    <>
+      {openingSplash ? <OpeningSplash onFinish={() => setOpeningSplash(false)} /> : null}
+      <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-950 font-sans text-zinc-100">
       <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-900">
         <div className="border-b border-zinc-800/80 px-[18px] pb-4 pt-5">
           <Image
@@ -290,7 +495,6 @@ export function MailBlastApp() {
             priority
             className="h-9 w-auto max-w-full object-contain object-left"
           />
-          <div className="mt-2 text-[11px] text-zinc-500">Email Campaign Platform</div>
         </div>
         <nav className="flex flex-1 flex-col gap-0 overflow-y-auto px-2 py-3">
           <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Main</div>
@@ -408,6 +612,7 @@ export function MailBlastApp() {
         </Modal>
       )}
     </div>
+    </>
   );
 }
 

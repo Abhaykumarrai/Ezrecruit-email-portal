@@ -23,3 +23,104 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Splash pieces converge from different directions */
+@keyframes opening-splash-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-88px) scale(0.85) rotate(-7deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes opening-splash-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(88px) scale(0.85) rotate(7deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1) rotate(0deg);
+  }
+}
+
+@keyframes opening-splash-from-above {
+  from {
+    opacity: 0;
+    transform: translateY(-52px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes opening-splash-from-below {
+  from {
+    opacity: 0;
+    transform: translateY(52px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes opening-splash-from-bottom-left {
+  from {
+    opacity: 0;
+    transform: translate(-56px, 36px) scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes opening-splash-from-top-right {
+  from {
+    opacity: 0;
+    transform: translate(56px, -36px) scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes opening-splash-icons-row {
+  from {
+    transform: translateY(26px) scale(0.92);
+  }
+  to {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes opening-splash-icon-motion {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  33% {
+    transform: translateY(-10px) rotate(-5deg);
+  }
+  66% {
+    transform: translateY(6px) rotate(5deg);
+  }
+}
+
+@keyframes opening-splash-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.06);
+  }
+}
