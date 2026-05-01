@@ -636,6 +636,8 @@ function MetricEmailListView({
   const [supError, setSupError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const fromDateRef = useRef<HTMLInputElement>(null);
+  const toDateRef = useRef<HTMLInputElement>(null);
 
   const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "undelivered";
   const tabUsesSuppressions = activeTab === "spam" || activeTab === "unsubscribed";
@@ -711,6 +713,19 @@ function MetricEmailListView({
     setAppliedTo(to);
     setPage(1);
   }, [draftFrom, draftTo]);
+
+  const openDatePicker = useCallback((ref: RefObject<HTMLInputElement | null>) => {
+    const input = ref.current;
+    if (!input) return;
+    // Chromium supports showPicker for date inputs; fallback keeps behavior in other browsers.
+    const withPicker = input as HTMLInputElement & { showPicker?: () => void };
+    if (typeof withPicker.showPicker === "function") {
+      withPicker.showPicker();
+      return;
+    }
+    input.focus();
+    input.click();
+  }, []);
 
   const allRows = useMemo(() => {
     switch (activeTab) {
@@ -812,25 +827,60 @@ function MetricEmailListView({
           </div>
         )}
         <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-4">
-          <label className="block min-w-[140px]">
+          <label className="block min-w-[220px]">
             <span className="mb-1.5 block text-xs text-zinc-400">From</span>
-            <input
-              type="date"
-              value={draftFrom}
-              onChange={(e) => setDraftFrom(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
-            />
+            <div className="flex items-stretch gap-1.5">
+              <input
+                ref={fromDateRef}
+                type="date"
+                value={draftFrom}
+                onChange={(e) => setDraftFrom(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              />
+              <button
+                type="button"
+                onClick={() => openDatePicker(fromDateRef)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                title="Open calendar for From date"
+                aria-label="Open calendar for From date"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </label>
-          <label className="block min-w-[140px]">
+          <label className="block min-w-[220px]">
             <span className="mb-1.5 block text-xs text-zinc-400">To</span>
-            <input
-              type="date"
-              value={draftTo}
-              onChange={(e) => setDraftTo(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
-            />
+            <div className="flex items-stretch gap-1.5">
+              <input
+                ref={toDateRef}
+                type="date"
+                value={draftTo}
+                onChange={(e) => setDraftTo(e.target.value)}
+                className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              />
+              <button
+                type="button"
+                onClick={() => openDatePicker(toDateRef)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                title="Open calendar for To date"
+                aria-label="Open calendar for To date"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                  <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </label>
-          <Btn size="sm" variant="primary" onClick={applyFilter}>
+          <Btn
+            size="sm"
+            variant="primary"
+            className="h-10 border-amber-400/70 bg-amber-400/80 px-4 text-zinc-950 hover:border-amber-300 hover:bg-amber-300"
+            onClick={applyFilter}
+          >
             Search
           </Btn>
         </div>
