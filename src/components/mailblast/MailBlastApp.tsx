@@ -122,11 +122,6 @@ function statsActivityFeedFromTotals(totals: LiveDashboardStats["totals"]) {
   return [
     { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens in last 30 days`, sub: "SendGrid stats API" },
     {
-      dot: "bg-emerald-500",
-      text: `${formatInt(totals.clicks)} unique clicks in last 30 days`,
-      sub: "SendGrid stats API",
-    },
-    {
       dot: "bg-red-500",
       text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
       sub: "bounces + blocks + deferred + drops",
@@ -141,7 +136,7 @@ const PAGE_TITLES: Record<PageId, string> = {
   settings: "Settings",
 };
 
-type StatMetric = "sent" | "open" | "click" | "spam" | "unsubscribed" | "undelivered";
+type StatMetric = "sent" | "open" | "spam" | "unsubscribed" | "undelivered";
 
 function NavBtn({
   id,
@@ -544,7 +539,6 @@ function Td({
 const STAT_METRIC_LABEL: Record<StatMetric, string> = {
   sent: "Total sent",
   open: "Opens",
-  click: "Clicks",
   spam: "Spam reports",
   unsubscribed: "Unsubscribes",
   undelivered: "Undelivered",
@@ -570,10 +564,6 @@ function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDe
       return rows
         .filter((r) => (r.opensCount ?? 0) > 0)
         .map((r) => ({ ...r, detail: `Opened ${r.opensCount}x` }));
-    case "click":
-      return rows
-        .filter((r) => (r.clicksCount ?? 0) > 0)
-        .map((r) => ({ ...r, detail: `Clicked ${r.clicksCount}x` }));
     case "undelivered":
       return rows
         .filter((r) => r.status === "not_delivered")
@@ -609,7 +599,6 @@ function localTodayString(): string {
 const METRIC_TABS: { id: StatMetric; label: string }[] = [
   { id: "sent", label: "Total sent" },
   { id: "open", label: "Opens" },
-  { id: "click", label: "Clicks" },
   { id: "spam", label: "Spam" },
   { id: "unsubscribed", label: "Unsubscribes" },
   { id: "undelivered", label: "Undelivered" },
@@ -618,7 +607,6 @@ const METRIC_TABS: { id: StatMetric; label: string }[] = [
 function detailColumnHeader(metric: StatMetric): string {
   if (metric === "sent") return "Status";
   if (metric === "open") return "Open activity";
-  if (metric === "click") return "Click activity";
   if (metric === "spam") return "Spam flag";
   if (metric === "unsubscribed") return "Unsubscribe";
   return "Failure reason";
@@ -649,7 +637,7 @@ function MetricEmailListView({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "click" || activeTab === "undelivered";
+  const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "undelivered";
   const tabUsesSuppressions = activeTab === "spam" || activeTab === "unsubscribed";
 
   useEffect(() => {
@@ -729,7 +717,6 @@ function MetricEmailListView({
       case "sent":
         return liveSentRows;
       case "open":
-      case "click":
       case "undelivered":
         return deriveRowsFromLive(activeTab, liveSentRows);
       case "spam":
@@ -760,7 +747,7 @@ function MetricEmailListView({
   const loadingLabel = tabUsesSuppressions
     ? "Loading spam reports & unsubscribes..."
     : tabUsesMessages
-      ? "Loading SendGrid message activity..."
+      ? "loding matrics"
       : "Loading activity...";
 
   return (
@@ -885,7 +872,7 @@ function MetricEmailListView({
                             ? "Loading message activity..."
                             : sentError
                               ? "Could not load messages. See notice above."
-                              : "No matching rows in this date range. Enable open/click tracking on sends or widen dates."
+                              : "No matching rows in this date range. Enable open tracking on sends or widen dates."
                           : "No rows in this date range. Adjust the filter."}
                 </Td>
               </tr>
@@ -999,7 +986,6 @@ function DashboardView({
       : EMPTY_DASHBOARD_DETAILED);
 
   const openStr = `${rates.openPct}%`;
-  const clickStr = `${rates.clickPct}%`;
   const bounceStr = `${rates.bouncePct}%`;
   const unsubStr = `${rates.unsubPct}%`;
   const spamStr = totals.spamReports === 0 ? "0%" : `${rates.spamPct}%`;
@@ -1066,7 +1052,6 @@ function DashboardView({
       <Card className="mb-4">
         <CardHeader title="Engagement breakdown" />
         <ChartRow label="Opened" pct={rates.openPct} color="bg-sky-500" val={openStr} />
-        <ChartRow label="Clicked" pct={rates.clickPct} color="bg-emerald-500" val={clickStr} />
         <ChartRow label="Bounced" pct={rates.bouncePct} color="bg-red-500" val={bounceStr} />
         <ChartRow label="Unsubscribed" pct={Math.max(rates.unsubPct, 0.5)} color="bg-zinc-500" val={unsubStr} />
       </Card>
