@@ -10,7 +10,6 @@ export const email50 = {
   delivered: 48,
   opened: 17,
   clicked: 5,
-  replied: 1,
   bounced: 1,
   unsubscribed: 0,
   spamReports: 0,
@@ -25,7 +24,6 @@ function pct(part: number, whole: number, digits = 1) {
 export const rates50 = {
   openPct: Number(pct(email50.opened, email50.sent, 1)),
   clickPct: Number(pct(email50.clicked, email50.sent, 1)),
-  replyPct: Number(pct(email50.replied, email50.sent, 1)),
   bouncePct: Number(pct(email50.bounced, email50.sent, 1)),
   unsubPct: Number(pct(email50.unsubscribed, email50.sent, 1)),
   spamPct: Number(pct(email50.spamReports, email50.sent, 2)),
@@ -83,8 +81,8 @@ export const activityFeed50: ActivityItem[] = [
     sub: `2 min ago · ${recipients50[0].email}`,
   },
   {
-    dot: "bg-amber-500",
-    text: `${recipients50[1].name} replied to ${CAMPAIGN_DISPLAY_NAME}`,
+    dot: "bg-sky-500",
+    text: `${recipients50[1].name} opened ${CAMPAIGN_DISPLAY_NAME}`,
     sub: `14 min ago · ${recipients50[1].email}`,
   },
   {

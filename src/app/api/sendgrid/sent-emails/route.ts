@@ -79,19 +79,30 @@ export async function GET(request: Request) {
 
     const rows = messages
       .filter((m) => Boolean(m.to_email))
-      .map((m) => ({
-        name: m.to_name?.trim() || "—",
-        email: m.to_email?.trim() || "",
-        sentAt: m.last_event_time || new Date().toISOString(),
-        company: "—",
-        detail:
-          m.status?.trim() ||
-          (typeof m.opens_count === "number" && m.opens_count > 0
-            ? `Opened ${m.opens_count}x`
-            : typeof m.clicks_count === "number" && m.clicks_count > 0
-              ? `Clicked ${m.clicks_count}x`
-              : "Delivered"),
-      }))
+      .map((m) => {
+        const opensCount = typeof m.opens_count === "number" ? m.opens_count : 0;
+        const clicksCount = typeof m.clicks_count === "number" ? m.clicks_count : 0;
+        const status = m.status?.trim() ?? "";
+
+        let detail = status;
+        if (!detail) {
+          const parts: string[] = [];
+          if (clicksCount > 0) parts.push(`Clicked ${clicksCount}x`);
+          if (opensCount > 0) parts.push(`Opened ${opensCount}x`);
+          detail = parts.length > 0 ? parts.join(" · ") : "Delivered";
+        }
+
+        return {
+          name: m.to_name?.trim() || "—",
+          email: m.to_email?.trim() || "",
+          sentAt: m.last_event_time || new Date().toISOString(),
+          company: "—",
+          detail,
+          opensCount,
+          clicksCount,
+          status,
+        };
+      })
       .slice(0, limit);
 
     return NextResponse.json({ rows, count: rows.length, fetchedPages: Math.min(page, maxPages) });

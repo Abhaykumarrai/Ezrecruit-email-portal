@@ -48,7 +48,6 @@ type LiveDashboardStats = {
     delivered: number;
     opens: number;
     clicks: number;
-    replies: number;
     spamReports: number;
     unsubscribed: number;
     undelivered: number;
@@ -57,13 +56,83 @@ type LiveDashboardStats = {
   rates: {
     openPct: number;
     clickPct: number;
-    replyPct: number;
     bouncePct: number;
     unsubPct: number;
     spamPct: number;
     undeliveredPct: number;
   };
+  detailed: {
+    requests: number;
+    delivered: number;
+    opens: number;
+    uniqueOpens: number;
+    clicks: number;
+    uniqueClicks: number;
+    unsubscribes: number;
+    bounces: number;
+    spamReports: number;
+    blocks: number;
+    bounceDrops: number;
+    spamReportDrops: number;
+    unsubscribeDrops: number;
+    invalidEmails: number;
+    deferred: number;
+  };
 };
+
+const EMPTY_DASHBOARD_TOTALS: LiveDashboardStats["totals"] = {
+  sent: 0,
+  delivered: 0,
+  opens: 0,
+  clicks: 0,
+  spamReports: 0,
+  unsubscribed: 0,
+  undelivered: 0,
+  bounces: 0,
+};
+
+const EMPTY_DASHBOARD_RATES: LiveDashboardStats["rates"] = {
+  openPct: 0,
+  clickPct: 0,
+  bouncePct: 0,
+  unsubPct: 0,
+  spamPct: 0,
+  undeliveredPct: 0,
+};
+
+const EMPTY_DASHBOARD_DETAILED: LiveDashboardStats["detailed"] = {
+  requests: 0,
+  delivered: 0,
+  opens: 0,
+  uniqueOpens: 0,
+  clicks: 0,
+  uniqueClicks: 0,
+  unsubscribes: 0,
+  bounces: 0,
+  spamReports: 0,
+  blocks: 0,
+  bounceDrops: 0,
+  spamReportDrops: 0,
+  unsubscribeDrops: 0,
+  invalidEmails: 0,
+  deferred: 0,
+};
+
+function statsActivityFeedFromTotals(totals: LiveDashboardStats["totals"]) {
+  return [
+    { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens in last 30 days`, sub: "SendGrid stats API" },
+    {
+      dot: "bg-emerald-500",
+      text: `${formatInt(totals.clicks)} unique clicks in last 30 days`,
+      sub: "SendGrid stats API",
+    },
+    {
+      dot: "bg-red-500",
+      text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
+      sub: "bounces + blocks + deferred + drops",
+    },
+  ];
+}
 
 const PAGE_TITLES: Record<PageId, string> = {
   dashboard: "Dashboard",
@@ -72,7 +141,7 @@ const PAGE_TITLES: Record<PageId, string> = {
   settings: "Settings",
 };
 
-type StatMetric = "sent" | "open" | "click" | "replies" | "spam" | "unsubscribed" | "undelivered";
+type StatMetric = "sent" | "open" | "click" | "spam" | "unsubscribed" | "undelivered";
 
 function NavBtn({
   id,
@@ -181,7 +250,7 @@ export function MailBlastApp() {
   const [sendState, setSendState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [sendMessage, setSendMessage] = useState("");
   const [liveStats, setLiveStats] = useState<LiveDashboardStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState("");
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -476,7 +545,6 @@ const STAT_METRIC_LABEL: Record<StatMetric, string> = {
   sent: "Total sent",
   open: "Opens",
   click: "Clicks",
-  replies: "Replies",
   spam: "Spam reports",
   unsubscribed: "Unsubscribes",
   undelivered: "Undelivered",
@@ -488,87 +556,31 @@ type EmailDetailRow = {
   sentAt: string;
   company: string;
   detail: string;
+  opensCount?: number;
+  clicksCount?: number;
+  status?: string;
 };
 
-const EMAIL_DETAIL_SEED: Omit<EmailDetailRow, "detail">[] = [
-  {
-    name: "Rahul Sharma",
-    email: "rahul@techcorp.in",
-    sentAt: "2026-04-18T09:15:00",
-    company: "TechCorp",
-  },
-  {
-    name: "Priya Mehta",
-    email: "priya@startup.io",
-    sentAt: "2026-04-17T14:22:00",
-    company: "StartupIO",
-  },
-  {
-    name: "Arjun Nair",
-    email: "arjun@design.co",
-    sentAt: "2026-04-17T11:03:00",
-    company: "DesignCo",
-  },
-  {
-    name: "Sneha Patel",
-    email: "sneha@bigco.com",
-    sentAt: "2026-04-16T16:40:00",
-    company: "BigCo",
-  },
-  {
-    name: "Vikram Singh",
-    email: "vikram@saas.io",
-    sentAt: "2026-04-15T08:55:00",
-    company: "SaaS.io",
-  },
-  {
-    name: "Ananya Roy",
-    email: "ananya@retail.in",
-    sentAt: "2026-04-14T13:10:00",
-    company: "RetailIN",
-  },
-  {
-    name: "Karan Joshi",
-    email: "karan@finance.com",
-    sentAt: "2026-04-12T10:00:00",
-    company: "FinanceCo",
-  },
-  {
-    name: "Neha Kapoor",
-    email: "neha@media.tv",
-    sentAt: "2026-04-10T17:25:00",
-    company: "MediaTV",
-  },
-];
-
-function detailForMetric(metric: StatMetric, i: number): string {
-  const times = ["10:22", "15:08", "11:41", "09:12", "08:30", "14:55", "16:03", "12:18"];
-  const reasons = ["Mailbox full", "Invalid address", "DNS failure", "Blocked", "Deferred timeout"];
+/** Rows derived from SendGrid Messages API (`/v3/messages`). */
+function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDetailRow[] {
   switch (metric) {
     case "sent":
-      return "Delivered";
+      return rows;
     case "open":
-      return `Opened ${times[i % times.length]}`;
+      return rows
+        .filter((r) => (r.opensCount ?? 0) > 0)
+        .map((r) => ({ ...r, detail: `Opened ${r.opensCount}x` }));
     case "click":
-      return `Clicked CTA · ${times[i % times.length]}`;
-    case "replies":
-      return `Replied ${times[i % times.length]}`;
-    case "spam":
-      return `Reported ${times[i % times.length]}`;
-    case "unsubscribed":
-      return `Unsubscribed ${times[i % times.length]}`;
+      return rows
+        .filter((r) => (r.clicksCount ?? 0) > 0)
+        .map((r) => ({ ...r, detail: `Clicked ${r.clicksCount}x` }));
     case "undelivered":
-      return reasons[i % reasons.length];
+      return rows
+        .filter((r) => r.status === "not_delivered")
+        .map((r) => ({ ...r, detail: r.detail || "Not delivered" }));
     default:
-      return "—";
+      return [];
   }
-}
-
-function rowsForMetric(metric: StatMetric): EmailDetailRow[] {
-  return EMAIL_DETAIL_SEED.map((r, i) => ({
-    ...r,
-    detail: detailForMetric(metric, i),
-  }));
 }
 
 function formatSentDisplay(iso: string) {
@@ -582,18 +594,22 @@ function formatSentDisplay(iso: string) {
   });
 }
 
-function defaultDateRangeStrings() {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+/** Calendar date in local timezone (matches `<input type="date">`). */
+function localDateStringFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function localTodayString(): string {
+  return localDateStringFromDate(new Date());
 }
 
 const METRIC_TABS: { id: StatMetric; label: string }[] = [
   { id: "sent", label: "Total sent" },
   { id: "open", label: "Opens" },
   { id: "click", label: "Clicks" },
-  { id: "replies", label: "Replies" },
   { id: "spam", label: "Spam" },
   { id: "unsubscribed", label: "Unsubscribes" },
   { id: "undelivered", label: "Undelivered" },
@@ -603,7 +619,6 @@ function detailColumnHeader(metric: StatMetric): string {
   if (metric === "sent") return "Status";
   if (metric === "open") return "Open activity";
   if (metric === "click") return "Click activity";
-  if (metric === "replies") return "Reply";
   if (metric === "spam") return "Spam flag";
   if (metric === "unsubscribed") return "Unsubscribe";
   return "Failure reason";
@@ -620,54 +635,118 @@ function MetricEmailListView({
   onTabChange: (m: StatMetric) => void;
   onBack: () => void;
 }) {
-  const defaults = defaultDateRangeStrings();
-  const [dateFrom, setDateFrom] = useState(defaults.from);
-  const [dateTo, setDateTo] = useState(defaults.to);
+  const [draftFrom, setDraftFrom] = useState(() => localTodayString());
+  const [draftTo, setDraftTo] = useState(() => localTodayString());
+  const [appliedFrom, setAppliedFrom] = useState(() => localTodayString());
+  const [appliedTo, setAppliedTo] = useState(() => localTodayString());
   const [liveSentRows, setLiveSentRows] = useState<EmailDetailRow[]>([]);
-  const [sentLoading, setSentLoading] = useState(false);
+  const [spamRows, setSpamRows] = useState<EmailDetailRow[]>([]);
+  const [unsubRows, setUnsubRows] = useState<EmailDetailRow[]>([]);
+  const [sentLoading, setSentLoading] = useState(true);
   const [sentError, setSentError] = useState("");
+  const [supLoading, setSupLoading] = useState(true);
+  const [supError, setSupError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "click" || activeTab === "undelivered";
+  const tabUsesSuppressions = activeTab === "spam" || activeTab === "unsubscribed";
+
   useEffect(() => {
-    if (activeTab !== "sent") return;
     let cancelled = false;
-    const loadSentRows = async () => {
+    const load = async () => {
+      setSentLoading(true);
+      setSupLoading(true);
+      setSentError("");
+      setSupError("");
       try {
-        setSentLoading(true);
-        setSentError("");
-        const res = await fetch("/api/sendgrid/sent-emails?limit=10000");
-        const data = (await res.json()) as { rows?: EmailDetailRow[]; message?: string };
-        if (!res.ok) throw new Error(data.message || "Unable to fetch sent emails.");
+        const [msgRes, supRes] = await Promise.all([
+          fetch("/api/sendgrid/sent-emails?limit=10000"),
+          fetch("/api/sendgrid/suppressions?limit=2000&days=365"),
+        ]);
+        const msgJson = (await msgRes.json()) as { rows?: EmailDetailRow[]; message?: string };
+        const supJson = (await supRes.json()) as {
+          spamRows?: EmailDetailRow[];
+          unsubscribedRows?: EmailDetailRow[];
+          message?: string;
+        };
+
         if (!cancelled) {
-          setLiveSentRows((data.rows ?? []).filter((r) => !!r.email));
+          if (!msgRes.ok) {
+            setSentError(msgJson.message || "Unable to fetch sent emails.");
+            setLiveSentRows([]);
+          } else {
+            setLiveSentRows((msgJson.rows ?? []).filter((r) => !!r.email));
+          }
+
+          if (!supRes.ok) {
+            setSupError(supJson.message || "Unable to fetch suppressions.");
+            setSpamRows([]);
+            setUnsubRows([]);
+          } else {
+            setSpamRows(supJson.spamRows ?? []);
+            setUnsubRows(supJson.unsubscribedRows ?? []);
+          }
         }
       } catch (err) {
         if (!cancelled) {
-          setSentError(err instanceof Error ? err.message : "Unable to fetch sent emails.");
+          const msg = err instanceof Error ? err.message : "Request failed.";
+          setSentError(msg);
+          setSupError(msg);
           setLiveSentRows([]);
+          setSpamRows([]);
+          setUnsubRows([]);
         }
       } finally {
-        if (!cancelled) setSentLoading(false);
+        if (!cancelled) {
+          setSentLoading(false);
+          setSupLoading(false);
+        }
       }
     };
-    loadSentRows();
+    load();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
   }, [activeTab]);
 
+  const applyFilter = useCallback(() => {
+    let from = draftFrom;
+    let to = draftTo;
+    if (!from?.trim() || !to?.trim()) return;
+    if (from > to) [from, to] = [to, from];
+    setAppliedFrom(from);
+    setAppliedTo(to);
+    setPage(1);
+  }, [draftFrom, draftTo]);
+
   const allRows = useMemo(() => {
-    if (activeTab === "sent") return liveSentRows;
-    return rowsForMetric(activeTab);
-  }, [activeTab, liveSentRows]);
+    switch (activeTab) {
+      case "sent":
+        return liveSentRows;
+      case "open":
+      case "click":
+      case "undelivered":
+        return deriveRowsFromLive(activeTab, liveSentRows);
+      case "spam":
+        return spamRows;
+      case "unsubscribed":
+        return unsubRows;
+      default:
+        return [];
+    }
+  }, [activeTab, liveSentRows, spamRows, unsubRows]);
 
   const filtered = useMemo(() => {
     return allRows.filter((r) => {
       const day = r.sentAt.slice(0, 10);
-      return day >= dateFrom && day <= dateTo;
+      return day >= appliedFrom && day <= appliedTo;
     });
-  }, [allRows, dateFrom, dateTo]);
+  }, [allRows, appliedFrom, appliedTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -677,6 +756,12 @@ function MetricEmailListView({
   }, [filtered, pageSize, safePage]);
 
   const detailHeader = detailColumnHeader(activeTab);
+  const tabLoading = (tabUsesMessages && sentLoading) || (tabUsesSuppressions && supLoading);
+  const loadingLabel = tabUsesSuppressions
+    ? "Loading spam reports & unsubscribes..."
+    : tabUsesMessages
+      ? "Loading SendGrid message activity..."
+      : "Loading activity...";
 
   return (
     <div>
@@ -710,14 +795,26 @@ function MetricEmailListView({
         })}
       </div>
 
+      {tabLoading ? (
+        <LoadingStateCard title={loadingLabel} subtitle="Fetching latest data from SendGrid" minHeightClass="min-h-[55vh]" />
+      ) : (
       <Card>
-        {activeTab === "sent" && (sentLoading || sentError) && (
+        {tabUsesMessages && (sentLoading || sentError) && (
           <div
             className={`mb-3 rounded-lg px-3 py-2 text-xs ${
               sentError ? "border border-amber-500/30 bg-amber-500/10 text-amber-200" : "border border-zinc-700 bg-zinc-900 text-zinc-400"
             }`}
           >
-            {sentLoading ? "Loading sent recipient emails from SendGrid..." : `Using sample rows. ${sentError}`}
+            {sentLoading ? "Loading Messages API data from SendGrid..." : sentError}
+          </div>
+        )}
+        {tabUsesSuppressions && (supLoading || supError) && (
+          <div
+            className={`mb-3 rounded-lg px-3 py-2 text-xs ${
+              supError ? "border border-amber-500/30 bg-amber-500/10 text-amber-200" : "border border-zinc-700 bg-zinc-900 text-zinc-400"
+            }`}
+          >
+            {supLoading ? "Loading spam reports & unsubscribes from SendGrid..." : supError}
           </div>
         )}
         {activeTab === "sent" && !sentLoading && !sentError && sentTotalHint !== null && liveSentRows.length < sentTotalHint && (
@@ -732,8 +829,8 @@ function MetricEmailListView({
             <span className="mb-1.5 block text-xs text-zinc-400">From</span>
             <input
               type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              value={draftFrom}
+              onChange={(e) => setDraftFrom(e.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
             />
           </label>
@@ -741,21 +838,13 @@ function MetricEmailListView({
             <span className="mb-1.5 block text-xs text-zinc-400">To</span>
             <input
               type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              value={draftTo}
+              onChange={(e) => setDraftTo(e.target.value)}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
             />
           </label>
-          <Btn
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              const d = defaultDateRangeStrings();
-              setDateFrom(d.from);
-              setDateTo(d.to);
-            }}
-          >
-            Last 30 days
+          <Btn size="sm" variant="primary" onClick={applyFilter}>
+            Search
           </Btn>
         </div>
 
@@ -776,8 +865,28 @@ function MetricEmailListView({
                   {activeTab === "sent"
                     ? sentLoading
                       ? "Loading sent emails from SendGrid..."
-                      : "No sent emails found for this date range."
-                    : "No rows in this date range. Adjust the filter."}
+                      : sentError
+                        ? "Could not load messages. See notice above."
+                        : "No sent emails found for this date range."
+                    : activeTab === "spam"
+                      ? supLoading
+                        ? "Loading spam reports..."
+                        : supError
+                          ? "Could not load suppressions. See notice above."
+                          : "No spam reports in this date range."
+                      : activeTab === "unsubscribed"
+                        ? supLoading
+                          ? "Loading unsubscribes..."
+                          : supError
+                            ? "Could not load suppressions. See notice above."
+                            : "No global unsubscribes in this date range."
+                        : tabUsesMessages
+                          ? sentLoading
+                            ? "Loading message activity..."
+                            : sentError
+                              ? "Could not load messages. See notice above."
+                              : "No matching rows in this date range. Enable open/click tracking on sends or widen dates."
+                          : "No rows in this date range. Adjust the filter."}
                 </Td>
               </tr>
             ) : (
@@ -833,6 +942,7 @@ function MetricEmailListView({
           </div>
         </div>
       </Card>
+      )}
     </div>
   );
 }
@@ -848,110 +958,115 @@ function DashboardView({
   statsLoading: boolean;
   statsError: string;
 }) {
-  const totals = liveStats?.totals ?? {
-    sent: email50.sent,
-    delivered: email50.delivered,
-    opens: email50.opened,
-    clicks: email50.clicked,
-    replies: email50.replied,
-    spamReports: email50.spamReports,
-    unsubscribed: email50.unsubscribed,
-    undelivered: email50.undelivered,
-    bounces: email50.bounced,
-  };
+  const useSampleDashboard = Boolean(statsError && !liveStats);
 
-  const rates = liveStats?.rates ?? rates50;
+  const totals =
+    liveStats?.totals ??
+    (useSampleDashboard
+      ? {
+          sent: email50.sent,
+          delivered: email50.delivered,
+          opens: email50.opened,
+          clicks: email50.clicked,
+          spamReports: email50.spamReports,
+          unsubscribed: email50.unsubscribed,
+          undelivered: email50.undelivered,
+          bounces: email50.bounced,
+        }
+      : EMPTY_DASHBOARD_TOTALS);
+
+  const rates = liveStats?.rates ?? (useSampleDashboard ? rates50 : EMPTY_DASHBOARD_RATES);
+  const detailed =
+    liveStats?.detailed ??
+    (useSampleDashboard
+      ? {
+          requests: email50.sent,
+          delivered: email50.delivered,
+          opens: email50.opened,
+          uniqueOpens: email50.opened,
+          clicks: email50.clicked,
+          uniqueClicks: email50.clicked,
+          unsubscribes: email50.unsubscribed,
+          bounces: email50.bounced,
+          spamReports: email50.spamReports,
+          blocks: 0,
+          bounceDrops: 0,
+          spamReportDrops: 0,
+          unsubscribeDrops: 0,
+          invalidEmails: 0,
+          deferred: 0,
+        }
+      : EMPTY_DASHBOARD_DETAILED);
 
   const openStr = `${rates.openPct}%`;
   const clickStr = `${rates.clickPct}%`;
-  const replyStr = `${rates.replyPct}%`;
   const bounceStr = `${rates.bouncePct}%`;
   const unsubStr = `${rates.unsubPct}%`;
   const spamStr = totals.spamReports === 0 ? "0%" : `${rates.spamPct}%`;
   const undelStr = `${rates.undeliveredPct}%`;
 
   const activity = liveStats
-    ? [
-        { dot: "bg-sky-500", text: `${formatInt(totals.opens)} opens in last 30 days`, sub: "SendGrid stats API" },
-        {
-          dot: "bg-emerald-500",
-          text: `${formatInt(totals.clicks)} clicks in last 30 days`,
-          sub: "SendGrid stats API",
-        },
-        { dot: "bg-amber-500", text: `${formatInt(totals.replies)} replies tracked`, sub: "Configured as 0 by default" },
-        {
-          dot: "bg-red-500",
-          text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
-          sub: "bounces + blocks + deferred + drops",
-        },
-      ]
-    : activityFeed50;
+    ? statsActivityFeedFromTotals(liveStats.totals)
+    : useSampleDashboard
+      ? activityFeed50
+      : statsActivityFeedFromTotals(EMPTY_DASHBOARD_TOTALS);
+
+  if (statsLoading) {
+    return (
+      <LoadingStateCard
+        title="Loading SendGrid stats..."
+        subtitle="Fetching latest dashboard metrics"
+        minHeightClass="min-h-[65vh]"
+      />
+    );
+  }
 
   return (
     <>
-      {(statsLoading || statsError) && (
+      {statsError && (
         <div
           className={`mb-4 rounded-lg px-3 py-2 text-xs ${
             statsError ? "border border-amber-500/30 bg-amber-500/10 text-amber-200" : "border border-zinc-700 bg-zinc-900 text-zinc-400"
           }`}
         >
-          {statsLoading ? "Loading SendGrid stats..." : `Using sample dashboard data. ${statsError}`}
+          {`Using sample dashboard data. ${statsError}`}
         </div>
       )}
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-        <StatCard
-          label="Total Sent"
-          value={formatInt(totals.sent)}
-          sub={liveStats ? "Last 30 days · SendGrid" : `${CAMPAIGN_DISPLAY_NAME} · last batch`}
-          onClick={() => onOpenMetric("sent")}
-        />
-        <StatCard
-          label="Open Rate"
-          value={openStr}
-          sub={`${formatInt(totals.opens)} opens`}
-          subClass="text-emerald-400/90"
-          onClick={() => onOpenMetric("open")}
-        />
-        <StatCard
-          label="Click Rate"
-          value={clickStr}
-          sub={`${formatInt(totals.clicks)} clicks`}
-          onClick={() => onOpenMetric("click")}
-        />
-        <StatCard
-          label="Replies"
-          value={formatInt(totals.replies)}
-          sub={`${replyStr} of ${formatInt(totals.sent)}`}
-          subClass="text-emerald-400/90"
-          onClick={() => onOpenMetric("replies")}
-        />
-        <StatCard
-          label="Spam"
-          value={spamStr}
-          sub={totals.spamReports === 0 ? "No spam reports" : `${formatInt(totals.spamReports)} reports`}
-          subClass={totals.spamReports === 0 ? "text-zinc-500" : "text-emerald-400/90"}
-          onClick={() => onOpenMetric("spam")}
-        />
-        <StatCard
-          label="Unsubscribed"
-          value={formatInt(totals.unsubscribed)}
-          sub={`${unsubStr} of sends`}
-          onClick={() => onOpenMetric("unsubscribed")}
-        />
-        <StatCard
-          label="Undelivered"
-          value={formatInt(totals.undelivered)}
-          sub={`${undelStr} of sends`}
-          subClass="text-red-400/90"
-          onClick={() => onOpenMetric("undelivered")}
-        />
-      </div>
+      <Card className="mb-6">
+        <CardHeader title="Campaning stats" />
+        <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3 lg:grid-cols-5">
+          {[
+            { label: "Requests", value: detailed.requests, metric: "sent" as const },
+            { label: "Delivered", value: detailed.delivered, metric: "sent" as const },
+            { label: "Opens", value: detailed.opens, metric: "open" as const },
+            { label: "Unique opens", value: detailed.uniqueOpens, metric: "open" as const },
+            { label: "Unsubscribes", value: detailed.unsubscribes, metric: "unsubscribed" as const },
+            { label: "Bounces", value: detailed.bounces, metric: "undelivered" as const },
+            { label: "Spam reports", value: detailed.spamReports, metric: "spam" as const },
+            { label: "Blocks", value: detailed.blocks, metric: "undelivered" as const },
+            { label: "Bounce drops", value: detailed.bounceDrops, metric: "undelivered" as const },
+            { label: "Spam report drops", value: detailed.spamReportDrops, metric: "spam" as const },
+            { label: "Unsubscribe drops", value: detailed.unsubscribeDrops, metric: "undelivered" as const },
+            { label: "Invalid emails", value: detailed.invalidEmails, metric: "undelivered" as const },
+          ].map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => onOpenMetric(item.metric)}
+              className="rounded-lg border border-transparent p-2 text-left transition-colors hover:border-zinc-700 hover:bg-zinc-800/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+              title={`Open ${STAT_METRIC_LABEL[item.metric]} details`}
+            >
+              <span className="text-zinc-300">{item.label}</span>
+              <div className="mt-1 font-semibold text-sky-300">{formatInt(item.value)}</div>
+            </button>
+          ))}
+        </div>
+      </Card>
 
       <Card className="mb-4">
         <CardHeader title="Engagement breakdown" />
         <ChartRow label="Opened" pct={rates.openPct} color="bg-sky-500" val={openStr} />
         <ChartRow label="Clicked" pct={rates.clickPct} color="bg-emerald-500" val={clickStr} />
-        <ChartRow label="Replied" pct={rates.replyPct} color="bg-amber-500" val={replyStr} />
         <ChartRow label="Bounced" pct={rates.bouncePct} color="bg-red-500" val={bounceStr} />
         <ChartRow label="Unsubscribed" pct={Math.max(rates.unsubPct, 0.5)} color="bg-zinc-500" val={unsubStr} />
       </Card>
@@ -977,6 +1092,23 @@ function DashboardView({
         </ul>
       </Card>
     </>
+  );
+}
+
+function LoadingStateCard({ title, subtitle, minHeightClass = "min-h-[55vh]" }: { title: string; subtitle: string; minHeightClass?: string }) {
+  return (
+    <Card className={`flex items-center justify-center ${minHeightClass}`}>
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-zinc-700 border-t-sky-500" aria-hidden />
+        <p className="text-sm font-medium text-zinc-200">{title}</p>
+        <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
+        <div className="mt-3 flex items-center justify-center gap-1.5" aria-hidden>
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500 [animation-delay:0ms]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400 [animation-delay:150ms]" />
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-300 [animation-delay:300ms]" />
+        </div>
+      </div>
+    </Card>
   );
 }
 
