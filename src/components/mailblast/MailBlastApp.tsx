@@ -20,6 +20,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { isoUtcToIstYmd, istTodayYmd } from "@/lib/istUtcRange";
 import { Btn, Card, CardHeader } from "./ui";
 
 type PageId = "dashboard" | "metrics" | "compose" | "settings";
@@ -780,25 +781,14 @@ function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDe
 
 function formatSentDisplay(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-/** Calendar date in local timezone (matches `<input type="date">`). */
-function localDateStringFromDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function localTodayString(): string {
-  return localDateStringFromDate(new Date());
 }
 
 const METRIC_TABS: { id: StatMetric; label: string }[] = [
@@ -828,10 +818,10 @@ function MetricEmailListView({
   onTabChange: (m: StatMetric) => void;
   onBack: () => void;
 }) {
-  const [draftFrom, setDraftFrom] = useState(() => localTodayString());
-  const [draftTo, setDraftTo] = useState(() => localTodayString());
-  const [appliedFrom, setAppliedFrom] = useState(() => localTodayString());
-  const [appliedTo, setAppliedTo] = useState(() => localTodayString());
+  const [draftFrom, setDraftFrom] = useState(() => istTodayYmd());
+  const [draftTo, setDraftTo] = useState(() => istTodayYmd());
+  const [appliedFrom, setAppliedFrom] = useState(() => istTodayYmd());
+  const [appliedTo, setAppliedTo] = useState(() => istTodayYmd());
   const [liveSentRows, setLiveSentRows] = useState<EmailDetailRow[]>([]);
   const [spamRows, setSpamRows] = useState<EmailDetailRow[]>([]);
   const [unsubRows, setUnsubRows] = useState<EmailDetailRow[]>([]);
@@ -847,19 +837,41 @@ function MetricEmailListView({
   const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "undelivered";
   const tabUsesSuppressions = activeTab === "spam" || activeTab === "unsubscribed";
 
+  const fetchSentEmails = useCallback(async (range?: { from: string; to: string }) => {
+    setSentLoading(true);
+    setSentError("");
+    try {
+      const qs = new URLSearchParams({ limit: "10000" });
+      if (range) {
+        qs.set("from", range.from);
+        qs.set("to", range.to);
+      }
+      const msgRes = await fetch(`/api/sendgrid/sent-emails?${qs}`);
+      const msgJson = (await msgRes.json()) as { rows?: EmailDetailRow[]; message?: string };
+      if (!msgRes.ok) {
+        setSentError(msgJson.message || "Unable to fetch sent emails.");
+        setLiveSentRows([]);
+        return;
+      }
+      setLiveSentRows((msgJson.rows ?? []).filter((r) => !!r.email));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Request failed.";
+      setSentError(msg);
+      setLiveSentRows([]);
+    } finally {
+      setSentLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
-      setSentLoading(true);
+    void fetchSentEmails();
+
+    const loadSuppressions = async () => {
       setSupLoading(true);
-      setSentError("");
       setSupError("");
       try {
-        const [msgRes, supRes] = await Promise.all([
-          fetch("/api/sendgrid/sent-emails?limit=10000"),
-          fetch("/api/sendgrid/suppressions?limit=2000&days=365"),
-        ]);
-        const msgJson = (await msgRes.json()) as { rows?: EmailDetailRow[]; message?: string };
+        const supRes = await fetch("/api/sendgrid/suppressions?limit=2000&days=365");
         const supJson = (await supRes.json()) as {
           spamRows?: EmailDetailRow[];
           unsubscribedRows?: EmailDetailRow[];
@@ -867,13 +879,6 @@ function MetricEmailListView({
         };
 
         if (!cancelled) {
-          if (!msgRes.ok) {
-            setSentError(msgJson.message || "Unable to fetch sent emails.");
-            setLiveSentRows([]);
-          } else {
-            setLiveSentRows((msgJson.rows ?? []).filter((r) => !!r.email));
-          }
-
           if (!supRes.ok) {
             setSupError(supJson.message || "Unable to fetch suppressions.");
             setSpamRows([]);
@@ -886,38 +891,35 @@ function MetricEmailListView({
       } catch (err) {
         if (!cancelled) {
           const msg = err instanceof Error ? err.message : "Request failed.";
-          setSentError(msg);
           setSupError(msg);
-          setLiveSentRows([]);
           setSpamRows([]);
           setUnsubRows([]);
         }
       } finally {
-        if (!cancelled) {
-          setSentLoading(false);
-          setSupLoading(false);
-        }
+        if (!cancelled) setSupLoading(false);
       }
     };
-    load();
+
+    void loadSuppressions();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchSentEmails]);
 
   useEffect(() => {
     setPage(1);
   }, [activeTab]);
 
-  const applyFilter = useCallback(() => {
-    let from = draftFrom;
-    let to = draftTo;
-    if (!from?.trim() || !to?.trim()) return;
+  const applyFilter = useCallback(async () => {
+    let from = draftFrom.trim();
+    let to = draftTo.trim();
+    if (!from || !to) return;
     if (from > to) [from, to] = [to, from];
     setAppliedFrom(from);
     setAppliedTo(to);
     setPage(1);
-  }, [draftFrom, draftTo]);
+    await fetchSentEmails({ from, to });
+  }, [draftFrom, draftTo, fetchSentEmails]);
 
   const openDatePicker = useCallback((ref: RefObject<HTMLInputElement | null>) => {
     const input = ref.current;
@@ -950,7 +952,8 @@ function MetricEmailListView({
 
   const filtered = useMemo(() => {
     return allRows.filter((r) => {
-      const day = r.sentAt.slice(0, 10);
+      const day = isoUtcToIstYmd(r.sentAt);
+      if (!day) return false;
       return day >= appliedFrom && day <= appliedTo;
     });
   }, [allRows, appliedFrom, appliedTo]);
@@ -1605,6 +1608,12 @@ function ComposeView({
   const [editorHtml, setEditorHtml] = useState(EDITOR_HTML);
   const [isEditorLight, setIsEditorLight] = useState(false);
   const [showRecipientsModal, setShowRecipientsModal] = useState(false);
+  const [showAddContactModal, setShowAddContactModal] = useState(false);
+  const [addContactError, setAddContactError] = useState("");
+  const [addName, setAddName] = useState("");
+  const [addEmail, setAddEmail] = useState("");
+  const [addCompany, setAddCompany] = useState("");
+  const [addDesignation, setAddDesignation] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const csvFileRef = useRef<HTMLInputElement>(null);
   const editorImageRef = useRef<HTMLInputElement>(null);
@@ -1629,6 +1638,38 @@ function ComposeView({
   const deleteRecipientRow = useCallback((index: number) => {
     setRecipientRows((prev) => prev.filter((_, i) => i !== index));
   }, []);
+
+  const closeAddContactModal = useCallback(() => {
+    setShowAddContactModal(false);
+    setAddContactError("");
+    setAddName("");
+    setAddEmail("");
+    setAddCompany("");
+    setAddDesignation("");
+  }, []);
+
+  const submitAddContact = useCallback(() => {
+    const email = addEmail.trim();
+    if (!email) {
+      setAddContactError("Email is required.");
+      return;
+    }
+    if (!EMAIL_LIKE.test(email)) {
+      setAddContactError("Enter a valid email address.");
+      return;
+    }
+    setRecipientRows((prev) => [
+      ...prev,
+      {
+        name: addName.trim(),
+        email,
+        company: addCompany.trim(),
+        custom1: addDesignation.trim(),
+        custom2: "",
+      },
+    ]);
+    closeAddContactModal();
+  }, [addCompany, addDesignation, addEmail, addName, closeAddContactModal]);
 
   const applySelectedTemplate = useCallback(() => {
     const picked = PREDEFINED_TEMPLATES.find((t) => t.id === selectedTemplateId);
@@ -2018,6 +2059,16 @@ function ComposeView({
           <Btn size="sm" type="button" onClick={() => window.open("/sample-recipients.csv", "_blank")}>
             Download sample CSV
           </Btn>
+          <Btn
+            size="sm"
+            type="button"
+            onClick={() => {
+              setAddContactError("");
+              setShowAddContactModal(true);
+            }}
+          >
+            Add contact
+          </Btn>
           <Btn size="sm" variant="primary" type="button" onClick={() => loadRecipientsFromText(recipientRaw)}>
             Load into table
           </Btn>
@@ -2056,7 +2107,8 @@ function ComposeView({
               {recipientRows.length === 0 ? (
                 <tr>
                   <Td colSpan={5} className="py-8 text-center text-zinc-500">
-                    No recipients yet. Paste data and click <strong className="text-zinc-400">Load into table</strong>.
+                    No recipients yet. Click <strong className="text-zinc-400">Add contact</strong>, paste or upload a CSV,
+                    then <strong className="text-zinc-400">Load into table</strong>.
                   </Td>
                 </tr>
               ) : (
@@ -2284,6 +2336,65 @@ function ComposeView({
             </Btn>
           </div>
         </Card>
+      )}
+
+      {showAddContactModal && (
+        <Modal title="Add contact" narrow onClose={closeAddContactModal}>
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">Name</span>
+              <input
+                type="text"
+                value={addName}
+                onChange={(e) => setAddName(e.target.value)}
+                placeholder="Full name"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">Email</span>
+              <input
+                type="email"
+                value={addEmail}
+                onChange={(e) => setAddEmail(e.target.value)}
+                placeholder="name@company.com"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+                autoComplete="email"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">Company</span>
+              <input
+                type="text"
+                value={addCompany}
+                onChange={(e) => setAddCompany(e.target.value)}
+                placeholder="Company"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-xs text-zinc-400">Designation</span>
+              <input
+                type="text"
+                value={addDesignation}
+                onChange={(e) => setAddDesignation(e.target.value)}
+                placeholder="Job title"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+              />
+            </label>
+            {addContactError ? (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">{addContactError}</div>
+            ) : null}
+          </div>
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <Btn size="sm" type="button" onClick={closeAddContactModal}>
+              Cancel
+            </Btn>
+            <Btn size="sm" variant="primary" type="button" onClick={submitAddContact}>
+              Add to table
+            </Btn>
+          </div>
+        </Modal>
       )}
 
       {showRecipientsModal && (

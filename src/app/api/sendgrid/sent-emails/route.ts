@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { istYmdRangeToUtcIsoBounds, isValidYmd } from "@/lib/istUtcRange";
+
 type SendGridMessage = {
   to_email?: string;
   to_name?: string;
@@ -36,13 +38,43 @@ export async function GET(request: Request) {
   const pageSize = 500;
   const maxPages = 40;
 
+  const fromParam = url.searchParams.get("from")?.trim() ?? "";
+  const toParam = url.searchParams.get("to")?.trim() ?? "";
+
+  let messagesQuery: string | null = null;
+  if (fromParam && toParam && isValidYmd(fromParam) && isValidYmd(toParam)) {
+    let fromYmd = fromParam;
+    let toYmd = toParam;
+    if (fromYmd > toYmd) [fromYmd, toYmd] = [toYmd, fromYmd];
+    try {
+      const { startIso, endIso } = istYmdRangeToUtcIsoBounds(fromYmd, toYmd);
+      messagesQuery = `last_event_time BETWEEN TIMESTAMP '${startIso}' AND TIMESTAMP '${endIso}'`;
+    } catch {
+      return NextResponse.json(
+        { message: "Invalid from / to date. Use YYYY-MM-DD (interpreted as Asia/Kolkata calendar days)." },
+        { status: 400 }
+      );
+    }
+  } else if (fromParam || toParam) {
+    return NextResponse.json(
+      { message: "Send both from and to as YYYY-MM-DD, or omit both for an unbounded fetch." },
+      { status: 400 }
+    );
+  }
+
   // Messages endpoint availability depends on account plan/add-ons.
   const sgBaseUrl = "https://api.sendgrid.com/v3/messages";
   const toAbsoluteUrl = (next: string) => (next.startsWith("http") ? next : `https://api.sendgrid.com${next}`);
 
+  const firstPageQuery = new URLSearchParams();
+  firstPageQuery.set("limit", String(pageSize));
+  if (messagesQuery) {
+    firstPageQuery.set("query", messagesQuery);
+  }
+
   try {
     const messages: SendGridMessage[] = [];
-    let nextUrl: string | null = `${sgBaseUrl}?limit=${pageSize}`;
+    let nextUrl: string | null = `${sgBaseUrl}?${firstPageQuery.toString()}`;
     let page = 0;
 
     while (nextUrl && page < maxPages && messages.length < limit) {
