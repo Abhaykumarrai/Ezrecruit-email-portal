@@ -1,0 +1,20 @@
+{
+  "name": "sendgrid-webhook-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal SendGrid Event Webhook receiver + MongoDB storage",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@sendgrid/eventwebhook": "^8.0.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongodb": "^6.21.0"
+  }
+}

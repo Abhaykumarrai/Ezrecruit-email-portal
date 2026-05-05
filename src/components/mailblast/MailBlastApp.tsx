@@ -529,7 +529,6 @@ export function MailBlastApp() {
           {page === "metrics" && (
             <MetricEmailListView
               activeTab={metricTab}
-              sentTotalHint={liveStats?.totals.sent ?? null}
               onTabChange={setMetricTab}
               onBack={() => setPage("dashboard")}
             />
@@ -809,12 +808,10 @@ function detailColumnHeader(metric: StatMetric): string {
 
 function MetricEmailListView({
   activeTab,
-  sentTotalHint,
   onTabChange,
   onBack,
 }: {
   activeTab: StatMetric;
-  sentTotalHint: number | null;
   onTabChange: (m: StatMetric) => void;
   onBack: () => void;
 }) {
@@ -1025,13 +1022,6 @@ function MetricEmailListView({
             }`}
           >
             {supLoading ? "Loading spam reports & unsubscribes from SendGrid..." : supError}
-          </div>
-        )}
-        {activeTab === "sent" && !sentLoading && !sentError && sentTotalHint !== null && liveSentRows.length < sentTotalHint && (
-          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            SendGrid aggregate stats show {formatInt(sentTotalHint)} sent, but Messages API returned {formatInt(liveSentRows.length)} rows.
-            This usually means message activity retention/plan limits on SendGrid. For full historical recipient-level rows, store Event
-            Webhook data in your database.
           </div>
         )}
         <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-4">
