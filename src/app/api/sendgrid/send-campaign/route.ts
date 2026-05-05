@@ -130,24 +130,36 @@ export async function POST(request: Request) {
         const personalizedSubject = applyPlaceholders(subject, recipient);
         const personalizedHtml = applyPlaceholders(html, recipient);
         const inline = extractInlineImageAttachments(personalizedHtml);
+        const mailSendBody: {
+          personalizations: Array<{ to: Array<{ email: string; name?: string }> }>;
+          from: { email: string; name: string };
+          reply_to: { email: string };
+          subject: string;
+          content: Array<{ type: "text/html"; value: string }>;
+          attachments?: InlineImageAttachment[];
+        } = {
+          personalizations: [
+            {
+              to: [{ email: recipient.email, name: recipient.name || undefined }],
+            },
+          ],
+          from: { email: fromEmail, name: fromName },
+          reply_to: { email: replyToEmail },
+          subject: personalizedSubject,
+          content: [{ type: "text/html", value: inline.html }],
+        };
+
+        if (inline.attachments.length > 0) {
+          mailSendBody.attachments = inline.attachments;
+        }
+
         const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            personalizations: [
-              {
-                to: [{ email: recipient.email, name: recipient.name || undefined }],
-              },
-            ],
-            from: { email: fromEmail, name: fromName },
-            reply_to: { email: replyToEmail },
-            subject: personalizedSubject,
-            content: [{ type: "text/html", value: inline.html }],
-            attachments: inline.attachments,
-          }),
+          body: JSON.stringify(mailSendBody),
           cache: "no-store",
         });
 
