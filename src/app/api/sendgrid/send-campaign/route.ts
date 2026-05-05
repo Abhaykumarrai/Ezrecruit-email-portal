@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import sgMail from "@sendgrid/mail";
 
 type RecipientPayload = {
   name?: string;
@@ -122,8 +121,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "No valid recipients found." }, { status: 400 });
     }
 
-    sgMail.setApiKey(apiKey);
-
     let sentCount = 0;
     let failedCount = 0;
     const failureReasons: string[] = [];
@@ -133,47 +130,66 @@ export async function POST(request: Request) {
         const personalizedSubject = applyPlaceholders(subject, recipient);
         const personalizedHtml = applyPlaceholders(html, recipient);
         const inline = extractInlineImageAttachments(personalizedHtml);
-        await sgMail.send({
-          to: recipient.email,
-          from: { email: fromEmail, name: fromName },
-          replyTo: replyToEmail,
-          subject: personalizedSubject,
-          html: inline.html,
-          attachments: inline.attachments,
+        const response = await fetch("https://api.sendgrid.com/v3/mail/send", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            personalizations: [
+              {
+                to: [{ email: recipient.email, name: recipient.name || undefined }],
+              },
+            ],
+            from: { email: fromEmail, name: fromName },
+            reply_to: { email: replyToEmail },
+            subject: personalizedSubject,
+            content: [{ type: "text/html", value: inline.html }],
+            attachments: inline.attachments,
+          }),
+          cache: "no-store",
         });
+
+        if (!response.ok) {
+          const text = await response.text();
+          let message = `Mail Send API HTTP ${response.status}`;
+          try {
+            const parsed = JSON.parse(text) as { errors?: Array<{ message?: string }> };
+            const fromApi = parsed.errors?.[0]?.message;
+            if (fromApi) message = fromApi;
+          } catch {
+            /* keep fallback message */
+          }
+          throw new Error(message);
+        }
+
         sentCount += 1;
       } catch (error) {
         failedCount += 1;
-        const messageFromSendGrid =
-          error &&
-          typeof error === "object" &&
-          "response" in error &&
-          error.response &&
-          typeof error.response === "object" &&
-          "body" in error.response &&
-          error.response.body &&
-          typeof error.response.body === "object" &&
-          "errors" in error.response.body &&
-          Array.isArray(error.response.body.errors) &&
-          error.response.body.errors.length > 0 &&
-          typeof error.response.body.errors[0]?.message === "string"
-            ? String(error.response.body.errors[0].message)
-            : error instanceof Error
-              ? error.message
-              : "Unknown send failure";
+        const messageFromSendGrid = error instanceof Error ? error.message : "Unknown send failure";
         if (failureReasons.length < 5) {
           failureReasons.push(messageFromSendGrid);
         }
       }
     }
 
-    const status = sentCount > 0 ? 200 : 502;
+    const firstFailure = failureReasons[0] ?? "";
+    const lowerFirstFailure = firstFailure.toLowerCase();
+    const creditsExhausted =
+      lowerFirstFailure.includes("maximum credits exceeded") ||
+      lowerFirstFailure.includes("credits exceeded") ||
+      lowerFirstFailure.includes("credit balance");
+
+    const status = sentCount > 0 ? 200 : creditsExhausted ? 402 : 502;
     return NextResponse.json(
       {
         message:
           sentCount > 0
             ? "Campaign processed."
-            : `SendGrid rejected all emails. ${failureReasons[0] ?? "Check sender verification and API key permissions."}`,
+            : creditsExhausted
+              ? "SendGrid Mail Send API is active, but your account sending credits are exhausted. Upgrade/add credits in SendGrid billing and retry."
+              : `SendGrid rejected all emails. ${firstFailure || "Check sender verification and API key permissions."}`,
         sentCount,
         failedCount,
         failureReasons,
