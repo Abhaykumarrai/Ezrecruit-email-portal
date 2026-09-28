@@ -761,7 +761,7 @@ type EmailDetailRow = {
   name: string;
   email: string;
   sentAt: string;
-  company: string;
+  university: string;
   detail: string;
   opensCount?: number;
   clicksCount?: number;
