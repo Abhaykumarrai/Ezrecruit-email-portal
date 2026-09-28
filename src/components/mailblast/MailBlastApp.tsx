@@ -30,7 +30,7 @@ type ModalId = "sendConfirm" | null;
 type RecipientPayload = {
   name: string;
   email: string;
-  company: string;
+  university: string;
   custom1: string;
   custom2: string;
 };
@@ -1097,7 +1097,7 @@ function MetricEmailListView({
               <Th>Name</Th>
               <Th>Email</Th>
               <Th>Time sent</Th>
-              <Th>Company</Th>
+              <Th>University</Th>
               <Th>{detailHeader}</Th>
             </tr>
           </thead>
@@ -1138,7 +1138,7 @@ function MetricEmailListView({
                   <Td>{r.name}</Td>
                   <Td className="font-mono text-xs text-zinc-300">{r.email}</Td>
                   <Td>{formatSentDisplay(r.sentAt)}</Td>
-                  <Td>{r.company}</Td>
+                  <Td>{r.university}</Td>
                   <Td className="text-zinc-400">{r.detail}</Td>
                 </tr>
               ))
@@ -1418,7 +1418,7 @@ function StepLine() {
 }
 
 const EDITOR_HTML =
-  "Hi {{name}},<br><br>We have an exciting offer just for you at {{company}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><span style=\"font-size:11px;color:#71717a\">Unsubscribe: {{unsubscribe_link}}</span>";
+  "Hi {{name}},<br><br>We have an exciting offer just for you at {{university}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><span style=\"font-size:11px;color:#71717a\">Unsubscribe: {{unsubscribe_link}}</span>";
 
 type PredefinedTemplate = {
   id: string;
@@ -1478,7 +1478,7 @@ function templateTextToHtml(text: string) {
 type RecipientRow = {
   name: string;
   email: string;
-  company: string;
+  university: string;
   custom1: string;
   custom2: string;
 };
@@ -1523,7 +1523,7 @@ function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: str
     let bad = 0;
     for (const line of lines) {
       if (EMAIL_LIKE.test(line)) {
-        rows.push({ name: "", email: line, company: "", custom1: "", custom2: "" });
+        rows.push({ name: "", email: line, university: "", custom1: "", custom2: "" });
       } else bad++;
     }
     if (bad) warnings.push(`${bad} line(s) skipped — need a valid email per line when not using CSV.`);
@@ -1538,7 +1538,7 @@ function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: str
     (keys.includes("name") && keys.length >= 2);
 
   let start = 0;
-  let col = { name: 0, email: 1, company: 2, custom1: 3, custom2: 4 };
+  let col = { name: 0, email: 1, university: 2, custom1: 3, custom2: 4 };
 
   if (hasHeader) {
     const idx = (aliases: string[], fallback: number) => {
@@ -1550,7 +1550,7 @@ function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: str
     col = {
       name: idx(["name", "fullname", "full name"], 0),
       email: idx(["email", "e-mail", "mail"], 1),
-      company: idx(["company", "organization", "org"], 2),
+      university: idx(["university", "college", "institution", "school"], 2),
       custom1: idx(["custom1", "designation", "jobtitle", "title", "job"], 3),
       custom2: idx(["custom2", "industry"], 4),
     };
@@ -1570,7 +1570,7 @@ function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: str
     rows.push({
       name: (cells[col.name] ?? "").trim(),
       email,
-      company: (cells[col.company] ?? "").trim(),
+      university: (cells[col.university] ?? "").trim(),
       custom1: (cells[col.custom1] ?? "").trim(),
       custom2: (cells[col.custom2] ?? "").trim(),
     });
@@ -1590,7 +1590,7 @@ function ComposeView({
   onSend: (draft: CampaignDraft) => void;
 }) {
   type ComposeStep = 1 | 2 | 3 | 4;
-  const tags = ["{{name}}", "{{email}}", "{{company}}", "{{designation}}"];
+  const tags = ["{{name}}", "{{email}}", "{{university}}", "{{designation}}"];
 
   const [step, setStep] = useState<ComposeStep>(1);
   const [recipientRaw, setRecipientRaw] = useState("");
@@ -1610,7 +1610,7 @@ function ComposeView({
   const [addContactError, setAddContactError] = useState("");
   const [addName, setAddName] = useState("");
   const [addEmail, setAddEmail] = useState("");
-  const [addCompany, setAddCompany] = useState("");
+  const [addUniversity, setAddUniversity] = useState("");
   const [addDesignation, setAddDesignation] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const csvFileRef = useRef<HTMLInputElement>(null);
@@ -1642,7 +1642,7 @@ function ComposeView({
     setAddContactError("");
     setAddName("");
     setAddEmail("");
-    setAddCompany("");
+    setAddUniversity("");
     setAddDesignation("");
   }, []);
 
@@ -1661,13 +1661,13 @@ function ComposeView({
       {
         name: addName.trim(),
         email,
-        company: addCompany.trim(),
+        university: addUniversity.trim(),
         custom1: addDesignation.trim(),
         custom2: "",
       },
     ]);
     closeAddContactModal();
-  }, [addCompany, addDesignation, addEmail, addName, closeAddContactModal]);
+  }, [addUniversity, addDesignation, addEmail, addName, closeAddContactModal]);
 
   const applySelectedTemplate = useCallback(() => {
     const picked = PREDEFINED_TEMPLATES.find((t) => t.id === selectedTemplateId);
@@ -1767,17 +1767,17 @@ function ComposeView({
   const previewRecipient = useMemo<RecipientRow | null>(() => recipientRows[0] ?? null, [recipientRows]);
 
   const resolvePreviewPlaceholders = useCallback((input: string, row: RecipientRow) => {
-    const normalize = (key: string) => key.trim().toLowerCase().replace(/[\s_-]+/g, "");
-    const values: Record<string, string> = {
-      name: row.name ?? "",
-      email: row.email ?? "",
-      company: row.company ?? "",
-      custom1: row.custom1 ?? "",
-      custom2: row.custom2 ?? "",
-      designation: row.custom1 ?? "",
-      unsubscribelink: "#",
-      unsubscribe: "#",
-    };
+  const normalize = (key: string) => key.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const values: Record<string, string> = {
+    name: row.name ?? "",
+    email: row.email ?? "",
+    university: row.university ?? "",
+    custom1: row.custom1 ?? "",
+    custom2: row.custom2 ?? "",
+    designation: row.custom1 ?? "",
+    unsubscribelink: "#",
+    unsubscribe: "#",
+  };
     const getValue = (rawKey: string) => values[normalize(rawKey)] ?? "";
     return input
       .replace(/\{\{([^}]+)\}\}/g, (_, key: string) => getValue(key))
@@ -2096,7 +2096,7 @@ function ComposeView({
               <tr>
                 <Th>Name</Th>
                 <Th>Email</Th>
-                <Th>Company</Th>
+                <Th>University</Th>
                 <Th>Designation</Th>
                 <Th>Actions</Th>
               </tr>
@@ -2133,10 +2133,10 @@ function ComposeView({
                     <Td>
                       <input
                         type="text"
-                        value={r.company}
-                        onChange={(e) => updateRecipientField(i, "company", e.target.value)}
+                        value={r.university}
+                        onChange={(e) => updateRecipientField(i, "university", e.target.value)}
                         className="w-full min-w-[130px] rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-100 outline-none focus:border-sky-600"
-                        placeholder="Company"
+                        placeholder="University"
                       />
                     </Td>
                     <Td>
@@ -2188,7 +2188,7 @@ function ComposeView({
             <span className="mb-1.5 block text-xs text-zinc-400">Subject line (supports placeholders)</span>
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <span className="text-[11px] text-zinc-500">Insert field:</span>
-              {["{{name}}", "{{email}}", "{{company}}", "{{designation}}"].map((field) => (
+              {["{{name}}", "{{email}}", "{{university}}", "{{designation}}"].map((field) => (
                 <button
                   key={field}
                   type="button"
@@ -2361,12 +2361,12 @@ function ComposeView({
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-xs text-zinc-400">Company</span>
+              <span className="mb-1.5 block text-xs text-zinc-400">University</span>
               <input
                 type="text"
-                value={addCompany}
-                onChange={(e) => setAddCompany(e.target.value)}
-                placeholder="Company"
+                value={addUniversity}
+                onChange={(e) => setAddUniversity(e.target.value)}
+                placeholder="University"
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
               />
             </label>
@@ -2406,7 +2406,7 @@ function ComposeView({
                   <tr>
                     <Th>Name</Th>
                     <Th>Email</Th>
-                    <Th>Company</Th>
+                    <Th>University</Th>
                     <Th>Designation</Th>
                   </tr>
                 </thead>
@@ -2415,7 +2415,7 @@ function ComposeView({
                     <tr key={`review-recipient-${i}`} className="hover:[&>td]:bg-zinc-800/40">
                       <Td>{r.name || "—"}</Td>
                       <Td className="font-mono text-xs text-zinc-300">{r.email}</Td>
-                      <Td>{r.company || "—"}</Td>
+                      <Td>{r.university || "—"}</Td>
                       <Td>{r.custom1 || "—"}</Td>
                     </tr>
                   ))}

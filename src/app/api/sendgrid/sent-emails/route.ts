@@ -128,7 +128,7 @@ export async function GET(request: Request) {
           name: m.to_name?.trim() || "—",
           email: m.to_email?.trim() || "",
           sentAt: m.last_event_time || new Date().toISOString(),
-          company: "—",
+          university: "—",
           detail,
           opensCount,
           clicksCount,

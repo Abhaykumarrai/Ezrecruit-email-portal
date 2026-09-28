@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 type RecipientPayload = {
   name?: string;
   email: string;
-  company?: string;
+  university?: string;
   custom1?: string;
   custom2?: string;
 };
@@ -25,7 +25,7 @@ function applyPlaceholders(input: string, recipient: RecipientPayload) {
   const values: Record<string, string> = {
     name: recipient.name ?? "",
     email: recipient.email ?? "",
-    company: recipient.company ?? "",
+    university: recipient.university ?? "",
     custom1: recipient.custom1 ?? "",
     custom2: recipient.custom2 ?? "",
     designation: recipient.custom1 ?? "",
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
       .map((recipient) => ({
         name: recipient.name?.trim() ?? "",
         email: recipient.email.trim(),
-        company: recipient.company?.trim() ?? "",
+        university: recipient.university?.trim() ?? "",
         custom1: recipient.custom1?.trim() ?? "",
         custom2: recipient.custom2?.trim() ?? "",
       }));

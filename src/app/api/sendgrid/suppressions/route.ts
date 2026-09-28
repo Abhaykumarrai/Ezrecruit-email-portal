@@ -84,7 +84,7 @@ export async function GET(request: Request) {
           name: "—",
           email: item.email,
           sentAt: new Date(item.created * 1000).toISOString(),
-          company: "—",
+          university: "—",
           detail,
         }));
 

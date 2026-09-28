@@ -58,9 +58,9 @@ const LAST = [
   "Agarwal",
   "Menon",
 ];
-const CO = ["TechCorp", "StartupIO", "DesignCo", "BigCo", "SaaS.io", "RetailIN", "FinanceCo", "MediaTV"];
+const UNIV = ["IIT Delhi", "IIT Bombay", "NIT Trichy", "BITS Pilani", "IISc Bangalore", "Delhi University", "Mumbai University", "Pune University"];
 
-export type SampleRecipient = { name: string; email: string; company: string };
+export type SampleRecipient = { name: string; email: string; university: string };
 
 export const recipients50: SampleRecipient[] = Array.from({ length: SENT_TOTAL }, (_, i) => {
   const fn = FIRST[i % FIRST.length];
@@ -68,7 +68,7 @@ export const recipients50: SampleRecipient[] = Array.from({ length: SENT_TOTAL }
   return {
     name: `${fn} ${ln}`,
     email: `contact${i + 1}@ezrecruit-demo.io`,
-    company: CO[i % CO.length],
+    university: UNIV[i % UNIV.length],
   };
 });
 
