@@ -136,6 +136,7 @@ export async function POST(request: Request) {
           reply_to: { email: string };
           subject: string;
           content: Array<{ type: "text/html"; value: string }>;
+          categories?: string[];
           attachments?: InlineImageAttachment[];
         } = {
           personalizations: [
@@ -147,6 +148,7 @@ export async function POST(request: Request) {
           reply_to: { email: replyToEmail },
           subject: personalizedSubject,
           content: [{ type: "text/html", value: inline.html }],
+          categories: ["ezrecruit-email-portal"],
         };
 
         if (inline.attachments.length > 0) {
