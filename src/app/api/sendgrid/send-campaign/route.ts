@@ -83,16 +83,22 @@ export async function POST(request: Request) {
     const payload = (await request.json()) as SendCampaignPayload;
     const fromEmail = payload.fromEmail?.trim() || process.env.SENDGRID_FROM_EMAIL?.trim();
     const fromName = payload.fromName?.trim() || process.env.SENDGRID_FROM_NAME?.trim() || "Email Team";
-    const replyToEmail = payload.replyToEmail?.trim() || process.env.SENDGRID_REPLY_TO?.trim() || fromEmail;
+    const replyToEmailsRaw = payload.replyToEmail?.trim() || process.env.SENDGRID_REPLY_TO?.trim() || fromEmail || "";
     const subject = payload.subject?.trim() || "";
     const html = payload.html?.trim() || "";
     const recipients = payload.recipients ?? [];
 
+    // Parse multiple reply-to emails (comma-separated)
+    const replyToEmails = replyToEmailsRaw
+      .split(",")
+      .map((e) => e.trim())
+      .filter((e) => e && EMAIL_LIKE.test(e));
+
     if (!fromEmail || !EMAIL_LIKE.test(fromEmail)) {
       return NextResponse.json({ message: "A valid from email is required." }, { status: 400 });
     }
-    if (!replyToEmail || !EMAIL_LIKE.test(replyToEmail)) {
-      return NextResponse.json({ message: "A valid reply-to email is required." }, { status: 400 });
+    if (replyToEmails.length === 0) {
+      return NextResponse.json({ message: "At least one valid reply-to email is required." }, { status: 400 });
     }
     if (!subject) {
       return NextResponse.json({ message: "Subject is required." }, { status: 400 });
@@ -133,7 +139,8 @@ export async function POST(request: Request) {
         const mailSendBody: {
           personalizations: Array<{ to: Array<{ email: string; name?: string }> }>;
           from: { email: string; name: string };
-          reply_to: { email: string };
+          reply_to_list?: Array<{ email: string }>;
+          reply_to?: { email: string };
           subject: string;
           content: Array<{ type: "text/html"; value: string }>;
           categories?: string[];
@@ -145,11 +152,17 @@ export async function POST(request: Request) {
             },
           ],
           from: { email: fromEmail, name: fromName },
-          reply_to: { email: replyToEmail },
           subject: personalizedSubject,
           content: [{ type: "text/html", value: inline.html }],
           categories: ["ezrecruit-email-portal"],
         };
+
+        // Use reply_to_list for multiple addresses, or reply_to for single
+        if (replyToEmails.length > 1) {
+          mailSendBody.reply_to_list = replyToEmails.map((email) => ({ email }));
+        } else {
+          mailSendBody.reply_to = { email: replyToEmails[0] };
+        }
 
         if (inline.attachments.length > 0) {
           mailSendBody.attachments = inline.attachments;

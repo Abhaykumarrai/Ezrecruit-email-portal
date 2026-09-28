@@ -2016,14 +2016,15 @@ function ComposeView({
           </div>
           <div className="grid grid-cols-2 gap-3.5 max-sm:grid-cols-1">
             <label className="block">
-              <span className="mb-1.5 block text-xs text-zinc-400">Reply-to email</span>
+              <span className="mb-1.5 block text-xs text-zinc-400">Reply-to email(s)</span>
               <input
-                type="email"
+                type="text"
                 value={replyToEmail}
                 onChange={(e) => setReplyToEmail(e.target.value)}
-                placeholder="Enter reply-to email"
+                placeholder="email1@example.com, email2@example.com"
                 className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
               />
+              <span className="mt-1 block text-[11px] text-zinc-500">Separate multiple emails with commas</span>
             </label>
           </div>
         </Card>
@@ -2294,6 +2295,9 @@ function ComposeView({
             </div>
             <div>
               Reply-to: <span className="text-zinc-100">{replyToEmail || "missing-reply-to"}</span>
+              {replyToEmail && replyToEmail.includes(",") && (
+                <span className="ml-2 text-[11px] text-sky-400">({replyToEmail.split(",").length} addresses)</span>
+              )}
             </div>
             <div>
               Subject:{" "}
@@ -2499,12 +2503,14 @@ function SettingsView() {
           </label>
         </div>
         <label className="mb-1.5 block">
-          <span className="mb-1.5 block text-xs text-zinc-400">Default reply-to email</span>
+          <span className="mb-1.5 block text-xs text-zinc-400">Default reply-to email(s)</span>
           <input
-            type="email"
+            type="text"
             defaultValue="replies@mycompany.io"
+            placeholder="email1@example.com, email2@example.com"
             className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-2 text-[13px] outline-none focus:border-sky-600"
           />
+          <span className="mt-1 block text-[11px] text-zinc-500">Separate multiple emails with commas</span>
         </label>
         <div className="mt-2">
           <Btn size="sm" variant="primary">
