@@ -459,7 +459,15 @@ export function MailBlastApp() {
       try {
         setStatsLoading(true);
         setStatsError("");
-        const res = await fetch("/api/sendgrid/stats?days=1");
+        // Add timestamp to prevent browser caching
+        const cacheBuster = `&_t=${Date.now()}`;
+        const res = await fetch(`/api/sendgrid/stats?days=1${cacheBuster}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache'
+          }
+        });
         const data = (await res.json()) as LiveDashboardStats & { message?: string };
         if (!res.ok) throw new Error(data.message || "Failed to load SendGrid stats.");
         if (!cancelled) setLiveStats(data);

@@ -104,9 +104,18 @@ export async function GET(request: Request) {
   const daysParam = Number(url.searchParams.get("days") || "30");
   const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
 
+  // Deployment timestamp: Only count emails sent after category tracking was added
+  // Set this to the deployment date/time (Sep 28, 2026, 10:50 AM IST = Sep 28, 2026, 05:20 AM UTC)
+  const CATEGORY_TRACKING_START = new Date("2026-09-28T05:20:00.000Z");
+  
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - days);
+  
+  // If start date is before category tracking was deployed, use deployment date instead
+  if (start < CATEGORY_TRACKING_START) {
+    start.setTime(CATEGORY_TRACKING_START.getTime());
+  }
 
   const startDate = start.toISOString().slice(0, 10);
   const endDate = end.toISOString().slice(0, 10);
@@ -140,6 +149,48 @@ export async function GET(request: Request) {
     }
 
     const payload = (await response.json()) as StatsDay[];
+
+    // If category filter returns no data, return zeros (means no emails with our category were sent)
+    if (!payload || payload.length === 0) {
+      return NextResponse.json({
+        range: { startDate, endDate, days },
+        totals: {
+          sent: 0,
+          delivered: 0,
+          opens: 0,
+          clicks: 0,
+          spamReports: 0,
+          unsubscribed: 0,
+          undelivered: 0,
+          bounces: 0,
+        },
+        rates: {
+          openPct: 0,
+          clickPct: 0,
+          bouncePct: 0,
+          unsubPct: 0,
+          spamPct: 0,
+          undeliveredPct: 0,
+        },
+        detailed: {
+          requests: 0,
+          delivered: 0,
+          opens: 0,
+          uniqueOpens: 0,
+          clicks: 0,
+          uniqueClicks: 0,
+          unsubscribes: 0,
+          bounces: 0,
+          spamReports: 0,
+          blocks: 0,
+          bounceDrops: 0,
+          spamReportDrops: 0,
+          unsubscribeDrops: 0,
+          invalidEmails: 0,
+          deferred: 0,
+        },
+      });
+    }
 
     const totals = payload.reduce(
       (acc, day) => {
