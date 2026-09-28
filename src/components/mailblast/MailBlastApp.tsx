@@ -122,10 +122,10 @@ const EMPTY_DASHBOARD_DETAILED: LiveDashboardStats["detailed"] = {
 
 function statsActivityFeedFromTotals(totals: LiveDashboardStats["totals"]) {
   return [
-    { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens in last 30 days`, sub: "SendGrid stats API" },
+    { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens today`, sub: "SendGrid stats API" },
     {
       dot: "bg-red-500",
-      text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
+      text: `${formatInt(totals.undelivered)} undelivered today`,
       sub: "bounces + blocks + deferred + drops",
     },
   ];
@@ -459,7 +459,7 @@ export function MailBlastApp() {
       try {
         setStatsLoading(true);
         setStatsError("");
-        const res = await fetch("/api/sendgrid/stats?days=30");
+        const res = await fetch("/api/sendgrid/stats?days=1");
         const data = (await res.json()) as LiveDashboardStats & { message?: string };
         if (!res.ok) throw new Error(data.message || "Failed to load SendGrid stats.");
         if (!cancelled) setLiveStats(data);
