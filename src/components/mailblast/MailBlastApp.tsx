@@ -487,12 +487,12 @@ export function MailBlastApp() {
       <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-950 font-sans text-zinc-100">
       <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-900">
         <div className="border-b border-zinc-800/80 px-[18px] pb-4 pt-5">
-          <div className="flex flex-col">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold tracking-tight text-sky-400">DEEP</span>
-              <span className="text-2xl font-bold tracking-tight text-zinc-300">TALENT</span>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5 border-l-4 border-sky-500 pl-2">
+              <span className="text-[22px] font-bold leading-none tracking-tight text-sky-500">DEEP</span>
+              <span className="text-[22px] font-bold leading-none tracking-tight text-zinc-400">TALENT</span>
             </div>
-            <span className="text-[10px] font-medium tracking-wide text-zinc-500">Empowering Connections</span>
+            <span className="pl-2 text-[11px] font-normal tracking-normal text-zinc-500">Empowering Connections</span>
           </div>
         </div>
         <nav className="flex flex-1 flex-col gap-0 overflow-y-auto px-2 py-3">
