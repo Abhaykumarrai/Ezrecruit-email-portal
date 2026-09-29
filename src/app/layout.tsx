@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EzRecruit — Email Campaigns",
-  description: "Dark-mode email campaign dashboard",
+  title: "Deep Talent — Email Platform",
+  description: "Empowering connections through email campaigns",
 };
 
 export default function RootLayout({

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   activityFeed50,
   CAMPAIGN_DISPLAY_NAME,
@@ -357,7 +356,7 @@ function OpeningSplash({ onFinish }: { onFinish: () => void }) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="EzRecruit ReachBox welcome"
+      aria-label="Deep Talent Email Platform welcome"
       className={`fixed inset-0 z-[100] flex flex-col items-center justify-center bg-zinc-950 transition-opacity duration-[480ms] ease-in-out ${
         phase === "out" ? "pointer-events-none opacity-0" : "opacity-100"
       }`}
@@ -369,14 +368,14 @@ function OpeningSplash({ onFinish }: { onFinish: () => void }) {
       <div className="pointer-events-none absolute inset-x-0 top-1/3 h-px bg-gradient-to-r from-transparent via-sky-500/25 to-transparent" />
 
       <div className="relative z-10 px-6 text-center">
-        <div className="flex flex-row flex-wrap items-baseline justify-center gap-0 text-[clamp(2rem,6vw,3.25rem)] font-bold italic leading-none tracking-tight">
+        <div className="flex flex-row flex-wrap items-baseline justify-center gap-2 text-[clamp(2rem,6vw,3.25rem)] font-bold leading-none tracking-tight">
           <span
             className="inline-block opacity-0 will-change-transform"
             style={{
               animation: "opening-splash-from-left 0.92s cubic-bezier(0.22, 1, 0.36, 1) 0.06s forwards",
             }}
           >
-            <span className="bg-gradient-to-br from-sky-300 to-sky-500 bg-clip-text text-transparent">Ez</span>
+            <span className="bg-gradient-to-br from-sky-300 to-sky-500 bg-clip-text text-transparent">DEEP</span>
           </span>
           <span
             className="inline-block opacity-0 will-change-transform"
@@ -384,26 +383,18 @@ function OpeningSplash({ onFinish }: { onFinish: () => void }) {
               animation: "opening-splash-from-right 0.92s cubic-bezier(0.22, 1, 0.36, 1) 0.14s forwards",
             }}
           >
-            <span className="text-white">Recruit</span>
+            <span className="text-zinc-200">TALENT</span>
           </span>
         </div>
 
-        <div className="mt-4 flex flex-row flex-wrap items-baseline justify-center gap-0 text-[clamp(1.35rem,4vw,2rem)] font-semibold italic tracking-tight">
+        <div className="mt-4 flex flex-row flex-wrap items-baseline justify-center gap-0 text-[clamp(1rem,3vw,1.5rem)] font-medium tracking-wide">
           <span
-            className="inline-block opacity-0 will-change-transform"
+            className="inline-block opacity-0 will-change-transform text-zinc-400"
             style={{
               animation: "opening-splash-from-above 0.88s cubic-bezier(0.22, 1, 0.36, 1) 0.38s forwards",
             }}
           >
-            <span className="bg-gradient-to-br from-sky-300 to-sky-500 bg-clip-text text-transparent">Reach</span>
-          </span>
-          <span
-            className="inline-block opacity-0 will-change-transform"
-            style={{
-              animation: "opening-splash-from-below 0.88s cubic-bezier(0.22, 1, 0.36, 1) 0.5s forwards",
-            }}
-          >
-            <span className="text-amber-100 drop-shadow-[0_0_24px_rgba(251,191,36,0.35)]">Box</span>
+            Empowering Connections
           </span>
         </div>
 
@@ -416,7 +407,7 @@ function OpeningSplash({ onFinish }: { onFinish: () => void }) {
               animation: "opening-splash-from-bottom-left 0.75s cubic-bezier(0.22, 1, 0.36, 1) 1.05s forwards",
             }}
           >
-            EzRecruit
+            Deep Talent
           </span>
           <span
             className="inline-block opacity-0 will-change-transform text-sky-400"
@@ -424,7 +415,7 @@ function OpeningSplash({ onFinish }: { onFinish: () => void }) {
               animation: "opening-splash-from-above 0.75s cubic-bezier(0.22, 1, 0.36, 1) 1.14s forwards",
             }}
           >
-            Marketing
+            Email
           </span>
           <span
             className="inline-block opacity-0 will-change-transform text-zinc-200"
@@ -496,14 +487,13 @@ export function MailBlastApp() {
       <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-950 font-sans text-zinc-100">
       <aside className="flex min-h-0 w-[220px] shrink-0 flex-col border-r border-zinc-800/80 bg-zinc-900">
         <div className="border-b border-zinc-800/80 px-[18px] pb-4 pt-5">
-          <Image
-            src="/ezrecruit-logo.png"
-            alt="EzRecruit"
-            width={200}
-            height={48}
-            priority
-            className="h-9 w-auto max-w-full object-contain object-left"
-          />
+          <div className="flex flex-col">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-bold tracking-tight text-sky-400">DEEP</span>
+              <span className="text-2xl font-bold tracking-tight text-zinc-300">TALENT</span>
+            </div>
+            <span className="text-[10px] font-medium tracking-wide text-zinc-500">Empowering Connections</span>
+          </div>
         </div>
         <nav className="flex flex-1 flex-col gap-0 overflow-y-auto px-2 py-3">
           <div className="px-2.5 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-zinc-500">Main</div>
