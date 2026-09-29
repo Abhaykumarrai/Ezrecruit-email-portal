@@ -8,6 +8,12 @@ type RecipientPayload = {
   custom2?: string;
 };
 
+type FileAttachment = {
+  filename: string;
+  content: string;
+  type: string;
+};
+
 type SendCampaignPayload = {
   fromName?: string;
   fromEmail?: string;
@@ -15,6 +21,7 @@ type SendCampaignPayload = {
   subject?: string;
   html?: string;
   recipients?: RecipientPayload[];
+  attachments?: FileAttachment[];
 };
 
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
@@ -87,6 +94,7 @@ export async function POST(request: Request) {
     const subject = payload.subject?.trim() || "";
     const html = payload.html?.trim() || "";
     const recipients = payload.recipients ?? [];
+    const fileAttachments = payload.attachments ?? [];
 
     // Parse multiple reply-to emails (comma-separated)
     const replyToEmails = replyToEmailsRaw
@@ -136,6 +144,15 @@ export async function POST(request: Request) {
         const personalizedSubject = applyPlaceholders(subject, recipient);
         const personalizedHtml = applyPlaceholders(html, recipient);
         const inline = extractInlineImageAttachments(personalizedHtml);
+        
+        type SendGridAttachment = {
+          content: string;
+          filename: string;
+          type: string;
+          disposition: "inline" | "attachment";
+          content_id?: string;
+        };
+        
         const mailSendBody: {
           personalizations: Array<{ to: Array<{ email: string; name?: string }> }>;
           from: { email: string; name: string };
@@ -144,7 +161,7 @@ export async function POST(request: Request) {
           subject: string;
           content: Array<{ type: "text/html"; value: string }>;
           categories?: string[];
-          attachments?: InlineImageAttachment[];
+          attachments?: SendGridAttachment[];
         } = {
           personalizations: [
             {
@@ -164,8 +181,19 @@ export async function POST(request: Request) {
           mailSendBody.reply_to = { email: replyToEmails[0] };
         }
 
-        if (inline.attachments.length > 0) {
-          mailSendBody.attachments = inline.attachments;
+        // Combine inline images and file attachments
+        const allAttachments: SendGridAttachment[] = [
+          ...inline.attachments,
+          ...fileAttachments.map((file) => ({
+            content: file.content,
+            filename: file.filename,
+            type: file.type,
+            disposition: "attachment" as const,
+          })),
+        ];
+
+        if (allAttachments.length > 0) {
+          mailSendBody.attachments = allAttachments;
         }
 
         const response = await fetch("https://api.sendgrid.com/v3/mail/send", {

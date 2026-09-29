@@ -34,6 +34,12 @@ type RecipientPayload = {
   custom2: string;
 };
 
+type FileAttachment = {
+  filename: string;
+  content: string;
+  type: string;
+};
+
 type CampaignDraft = {
   fromName: string;
   fromEmail: string;
@@ -41,6 +47,7 @@ type CampaignDraft = {
   subject: string;
   html: string;
   recipients: RecipientPayload[];
+  attachments?: FileAttachment[];
 };
 
 type LiveDashboardStats = {
@@ -1603,8 +1610,10 @@ function ComposeView({
   const [addUniversity, setAddUniversity] = useState("");
   const [addDesignation, setAddDesignation] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const csvFileRef = useRef<HTMLInputElement>(null);
   const editorImageRef = useRef<HTMLInputElement>(null);
+  const attachmentFileRef = useRef<HTMLInputElement>(null);
   const editorHtmlRef = useRef<string>(EDITOR_HTML);
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const draggingImageRef = useRef<HTMLImageElement | null>(null);
@@ -1658,6 +1667,39 @@ function ComposeView({
     ]);
     closeAddContactModal();
   }, [addUniversity, addDesignation, addEmail, addName, closeAddContactModal]);
+
+  const handleFileAttachment = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      // Limit file size to 10MB
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`File "${file.name}" is too large. Maximum size is 10MB.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        setAttachments((prev) => [
+          ...prev,
+          {
+            filename: file.name,
+            content: base64,
+            type: file.type || "application/octet-stream",
+          },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = "";
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const applySelectedTemplate = useCallback(() => {
     const picked = PREDEFINED_TEMPLATES.find((t) => t.id === selectedTemplateId);
@@ -1726,8 +1768,9 @@ function ComposeView({
       subject: subject.trim(),
       html,
       recipients: recipientRows,
+      attachments,
     });
-  }, [editorHtml, editorRef, fromEmail, fromName, onSend, recipientRows, replyToEmail, subject]);
+  }, [editorHtml, editorRef, fromEmail, fromName, onSend, recipientRows, replyToEmail, subject, attachments]);
 
   const goNext = useCallback(() => {
     setFormError("");
@@ -2272,6 +2315,67 @@ function ComposeView({
               />
             )}
           </div>
+
+          <div className="mt-4 border-t border-zinc-800 pt-4">
+            <h3 className="mb-3 text-sm font-medium text-zinc-100">Attachments</h3>
+            <input
+              ref={attachmentFileRef}
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip,.rar"
+              className="hidden"
+              onChange={handleFileAttachment}
+            />
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <Btn size="sm" type="button" onClick={() => attachmentFileRef.current?.click()}>
+                Add Files
+              </Btn>
+              <span className="text-[11px] text-zinc-500">
+                Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, ZIP, RAR (Max 10MB each)
+              </span>
+            </div>
+            
+            {attachments.length > 0 && (
+              <div className="space-y-2">
+                {attachments.map((file, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between rounded-lg border border-zinc-700 bg-zinc-800/40 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <svg className="h-4 w-4 shrink-0 text-sky-400" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path
+                          d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M13 2v7h7"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                      <span className="truncate text-[13px] text-zinc-200">{file.filename}</span>
+                      <span className="shrink-0 text-[11px] text-zinc-500">
+                        ({Math.round(file.content.length * 0.75 / 1024)}KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      className="ml-2 shrink-0 rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </Card>
       )}
 
@@ -2308,6 +2412,17 @@ function ComposeView({
                 {recipientRows.length}
               </button>
             </div>
+            {attachments.length > 0 && (
+              <div>
+                Attachments:{" "}
+                <span className="text-zinc-100">
+                  {attachments.length} file{attachments.length > 1 ? "s" : ""}
+                </span>
+                <span className="ml-2 text-[11px] text-zinc-500">
+                  ({attachments.map((f) => f.filename).join(", ")})
+                </span>
+              </div>
+            )}
           </div>
           <div className="mt-4 rounded-lg border border-zinc-700 bg-zinc-950">
             <div
