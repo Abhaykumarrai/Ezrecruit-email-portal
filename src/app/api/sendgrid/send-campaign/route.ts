@@ -1,5 +1,16 @@
 import { NextResponse } from "next/server";
 
+// Increase body size limit for this route to handle attachments
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb",
+    },
+  },
+};
+
+export const maxDuration = 60; // Allow up to 60 seconds for sending
+
 type RecipientPayload = {
   name?: string;
   email: string;
@@ -87,7 +98,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const payload = (await request.json()) as SendCampaignPayload;
+    let payload: SendCampaignPayload;
+    try {
+      payload = (await request.json()) as SendCampaignPayload;
+    } catch (error) {
+      return NextResponse.json(
+        { message: "Invalid request payload. Request body may be too large (max 10MB). Try reducing attachment sizes." },
+        { status: 413 }
+      );
+    }
     const fromEmail = payload.fromEmail?.trim() || process.env.SENDGRID_FROM_EMAIL?.trim();
     const fromName = payload.fromName?.trim() || process.env.SENDGRID_FROM_NAME?.trim() || "Email Team";
     const replyToEmailsRaw = payload.replyToEmail?.trim() || process.env.SENDGRID_REPLY_TO?.trim() || fromEmail || "";
@@ -95,6 +114,17 @@ export async function POST(request: Request) {
     const html = payload.html?.trim() || "";
     const recipients = payload.recipients ?? [];
     const fileAttachments = payload.attachments ?? [];
+
+    // Validate total attachment size (max 8MB)
+    if (fileAttachments.length > 0) {
+      const totalSize = fileAttachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
+      if (totalSize > 8 * 1024 * 1024) {
+        return NextResponse.json(
+          { message: "Total attachment size exceeds 8MB. Please reduce the size of your attachments." },
+          { status: 413 }
+        );
+      }
+    }
 
     // Parse multiple reply-to emails (comma-separated)
     const replyToEmails = replyToEmailsRaw

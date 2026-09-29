@@ -1673,23 +1673,34 @@ function ComposeView({
     if (!files || files.length === 0) return;
 
     Array.from(files).forEach((file) => {
-      // Limit file size to 10MB
-      if (file.size > 10 * 1024 * 1024) {
-        alert(`File "${file.name}" is too large. Maximum size is 10MB.`);
+      // Limit file size to 5MB per file
+      if (file.size > 5 * 1024 * 1024) {
+        alert(`File "${file.name}" is too large. Maximum size is 5MB per file.`);
         return;
       }
 
       const reader = new FileReader();
       reader.onload = () => {
         const base64 = (reader.result as string).split(",")[1];
-        setAttachments((prev) => [
-          ...prev,
-          {
-            filename: file.name,
-            content: base64,
-            type: file.type || "application/octet-stream",
-          },
-        ]);
+        setAttachments((prev) => {
+          const newAttachments = [
+            ...prev,
+            {
+              filename: file.name,
+              content: base64,
+              type: file.type || "application/octet-stream",
+            },
+          ];
+          
+          // Check total size (all attachments combined should be under 8MB)
+          const totalSize = newAttachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
+          if (totalSize > 8 * 1024 * 1024) {
+            alert(`Total attachment size exceeds 8MB. Please remove some files.`);
+            return prev;
+          }
+          
+          return newAttachments;
+        });
       };
       reader.readAsDataURL(file);
     });
@@ -1760,6 +1771,16 @@ function ComposeView({
       setFormError("Add at least one valid recipient before sending.");
       return;
     }
+    
+    // Validate total attachment size
+    if (attachments.length > 0) {
+      const totalSize = attachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
+      if (totalSize > 8 * 1024 * 1024) {
+        setFormError("Total attachment size exceeds 8MB. Please remove some files.");
+        return;
+      }
+    }
+    
     setFormError("");
     onSend({
       fromName: fromName.trim() || "Team",
@@ -2331,7 +2352,7 @@ function ComposeView({
                 Add Files
               </Btn>
               <span className="text-[11px] text-zinc-500">
-                Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, ZIP, RAR (Max 10MB each)
+                Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, ZIP, RAR (Max 5MB per file, 8MB total)
               </span>
             </div>
             
