@@ -104,18 +104,9 @@ export async function GET(request: Request) {
   const daysParam = Number(url.searchParams.get("days") || "30");
   const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
 
-  // Deployment timestamp: Only count emails sent after category tracking was added
-  // Set this to the deployment date/time (Sep 28, 2026, 10:50 AM IST = Sep 28, 2026, 05:20 AM UTC)
-  const CATEGORY_TRACKING_START = new Date("2026-09-28T05:20:00.000Z");
-  
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - days);
-  
-  // If start date is before category tracking was deployed, use deployment date instead
-  if (start < CATEGORY_TRACKING_START) {
-    start.setTime(CATEGORY_TRACKING_START.getTime());
-  }
 
   const startDate = start.toISOString().slice(0, 10);
   const endDate = end.toISOString().slice(0, 10);
@@ -123,18 +114,20 @@ export async function GET(request: Request) {
   const startUnix = Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000);
   const endUnix = Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000);
 
-  const sgUrl = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day&categories=ezrecruit-email-portal`;
+  // Try with category filter first, if no data, try without category
+  const sgUrlWithCategory = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day&categories=ezrecruit-email-portal`;
+  const sgUrlWithoutCategory = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
 
   try {
-    const [response, suppressionUnsubCount] = await Promise.all([
-      fetch(sgUrl, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        cache: "no-store",
-      }),
-      countGlobalSuppressionsUnsubscribes(apiKey, startUnix, endUnix).catch(() => null),
-    ]);
+    const suppressionUnsubCount = await countGlobalSuppressionsUnsubscribes(apiKey, startUnix, endUnix).catch(() => null);
+
+    // Try with category filter first
+    let response = await fetch(sgUrlWithCategory, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       const body = await response.text();
@@ -148,9 +141,32 @@ export async function GET(request: Request) {
       );
     }
 
-    const payload = (await response.json()) as StatsDay[];
+    let payload = (await response.json()) as StatsDay[];
 
-    // If category filter returns no data, return zeros (means no emails with our category were sent)
+    // If category filter returns no data or empty stats, try without category filter
+    const hasData = payload && payload.length > 0 && payload.some(day => {
+      const stats = day.stats ?? [];
+      return stats.length > 0 && stats.some(bucket => {
+        const m = bucket.metrics ?? {};
+        return (m.requests ?? 0) > 0 || (m.delivered ?? 0) > 0;
+      });
+    });
+
+    if (!hasData) {
+      // Fallback: fetch without category filter
+      response = await fetch(sgUrlWithoutCategory, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        cache: "no-store",
+      });
+
+      if (response.ok) {
+        payload = (await response.json()) as StatsDay[];
+      }
+    }
+
+    // If still no data, return zeros
     if (!payload || payload.length === 0) {
       return NextResponse.json({
         range: { startDate, endDate, days },
