@@ -1,15 +1,7 @@
 import { NextResponse } from "next/server";
 
-// Increase body size limit for this route to handle attachments
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "10mb",
-    },
-  },
-};
-
-export const maxDuration = 60; // Allow up to 60 seconds for sending
+// Allow up to 60 seconds for sending large campaigns
+export const maxDuration = 60;
 
 type RecipientPayload = {
   name?: string;

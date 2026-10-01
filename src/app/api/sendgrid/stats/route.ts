@@ -95,32 +95,32 @@ async function countGlobalSuppressionsUnsubscribes(
 }
 
 export async function GET(request: Request) {
-  const apiKey = process.env.SENDGRID_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ message: "Missing SENDGRID_API_KEY" }, { status: 500 });
-  }
-
-  const url = new URL(request.url);
-  
-  // Fixed start date: September 27, 2026 (only show emails from this date onwards)
-  const CAMPAIGN_START_DATE = "2026-09-27";
-  
-  const end = new Date();
-  const start = new Date(CAMPAIGN_START_DATE);
-
-  const startDate = start.toISOString().slice(0, 10);
-  const endDate = end.toISOString().slice(0, 10);
-  
-  // Calculate number of days between start and end
-  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-
-  const startUnix = Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000);
-  const endUnix = Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000);
-
-  // Fetch ALL SendGrid stats (no category filter to ensure accurate counts)
-  const sgUrl = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
-
   try {
+    const apiKey = process.env.SENDGRID_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ message: "Missing SENDGRID_API_KEY" }, { status: 500 });
+    }
+
+    const url = new URL(request.url);
+    
+    // Fixed start date: September 27, 2026 (only show emails from this date onwards)
+    const CAMPAIGN_START_DATE = "2026-09-27";
+    
+    const end = new Date();
+    const start = new Date(CAMPAIGN_START_DATE);
+
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    
+    // Calculate number of days between start and end
+    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+    const startUnix = Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000);
+    const endUnix = Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000);
+
+    // Fetch ALL SendGrid stats (no category filter to ensure accurate counts)
+    const sgUrl = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
+
     const [response, suppressionUnsubCount] = await Promise.all([
       fetch(sgUrl, {
         headers: {
@@ -286,6 +286,7 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    console.error("SendGrid Stats API Error:", error);
     return NextResponse.json(
       {
         message: "Unexpected error fetching SendGrid stats.",
