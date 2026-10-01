@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+// Ensure this runs on Node.js runtime, not Edge
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 type SendGridMetrics = {
   requests?: number;
   delivered?: number;
@@ -96,10 +100,15 @@ async function countGlobalSuppressionsUnsubscribes(
 
 export async function GET(request: Request) {
   try {
+    console.log("[Stats API] Starting request...");
+    
     const apiKey = process.env.SENDGRID_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ message: "Missing SENDGRID_API_KEY" }, { status: 500 });
+      console.error("[Stats API] Missing SENDGRID_API_KEY");
+      return NextResponse.json({ message: "Missing SENDGRID_API_KEY in environment variables" }, { status: 500 });
     }
+    
+    console.log("[Stats API] API key found");
 
     const url = new URL(request.url);
     
@@ -120,6 +129,9 @@ export async function GET(request: Request) {
 
     // Fetch ALL SendGrid stats (no category filter to ensure accurate counts)
     const sgUrl = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
+    
+    console.log("[Stats API] Fetching from SendGrid:", sgUrl);
+    console.log("[Stats API] Date range:", startDate, "to", endDate, `(${days} days)`);
 
     const [response, suppressionUnsubCount] = await Promise.all([
       fetch(sgUrl, {
@@ -131,8 +143,11 @@ export async function GET(request: Request) {
       countGlobalSuppressionsUnsubscribes(apiKey, startUnix, endUnix).catch(() => null),
     ]);
 
+    console.log("[Stats API] SendGrid response status:", response.status);
+
     if (!response.ok) {
       const body = await response.text();
+      console.error("[Stats API] SendGrid error:", response.status, body.slice(0, 200));
       return NextResponse.json(
         {
           message: "Unable to fetch SendGrid stats. Check API key scopes (Stats Read).",
@@ -144,9 +159,11 @@ export async function GET(request: Request) {
     }
 
     const payload = (await response.json()) as StatsDay[];
+    console.log("[Stats API] Received", payload?.length || 0, "days of data");
 
     // If no data, return zeros
     if (!payload || payload.length === 0) {
+      console.log("[Stats API] No data found, returning zeros");
       return NextResponse.json({
         range: { startDate, endDate, days },
         totals: {
@@ -246,6 +263,13 @@ export async function GET(request: Request) {
 
     const unsubscribed =
       suppressionUnsubCount !== null ? Math.max(totals.unsubscribes, suppressionUnsubCount) : totals.unsubscribes;
+
+    console.log("[Stats API] Success! Returning stats:", {
+      requests: totals.requests,
+      delivered: totals.delivered,
+      opens: totals.opens,
+      days,
+    });
 
     return NextResponse.json({
       range: { startDate, endDate, days },
