@@ -114,20 +114,19 @@ export async function GET(request: Request) {
   const startUnix = Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000);
   const endUnix = Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000);
 
-  // Try with category filter first, if no data, try without category
-  const sgUrlWithCategory = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day&categories=ezrecruit-email-portal`;
-  const sgUrlWithoutCategory = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
+  // Fetch ALL SendGrid stats (no category filter to ensure accurate counts)
+  const sgUrl = `https://api.sendgrid.com/v3/stats?start_date=${startDate}&end_date=${endDate}&aggregated_by=day`;
 
   try {
-    const suppressionUnsubCount = await countGlobalSuppressionsUnsubscribes(apiKey, startUnix, endUnix).catch(() => null);
-
-    // Try with category filter first
-    let response = await fetch(sgUrlWithCategory, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      cache: "no-store",
-    });
+    const [response, suppressionUnsubCount] = await Promise.all([
+      fetch(sgUrl, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        cache: "no-store",
+      }),
+      countGlobalSuppressionsUnsubscribes(apiKey, startUnix, endUnix).catch(() => null),
+    ]);
 
     if (!response.ok) {
       const body = await response.text();
@@ -141,32 +140,9 @@ export async function GET(request: Request) {
       );
     }
 
-    let payload = (await response.json()) as StatsDay[];
+    const payload = (await response.json()) as StatsDay[];
 
-    // If category filter returns no data or empty stats, try without category filter
-    const hasData = payload && payload.length > 0 && payload.some(day => {
-      const stats = day.stats ?? [];
-      return stats.length > 0 && stats.some(bucket => {
-        const m = bucket.metrics ?? {};
-        return (m.requests ?? 0) > 0 || (m.delivered ?? 0) > 0;
-      });
-    });
-
-    if (!hasData) {
-      // Fallback: fetch without category filter
-      response = await fetch(sgUrlWithoutCategory, {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        cache: "no-store",
-      });
-
-      if (response.ok) {
-        payload = (await response.json()) as StatsDay[];
-      }
-    }
-
-    // If still no data, return zeros
+    // If no data, return zeros
     if (!payload || payload.length === 0) {
       return NextResponse.json({
         range: { startDate, endDate, days },
