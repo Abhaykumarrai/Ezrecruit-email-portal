@@ -1416,7 +1416,7 @@ function StepLine() {
 }
 
 const EDITOR_HTML =
-  "Hi {{name}},<br><br>We have an exciting offer just for you at {{university}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><span style=\"font-size:11px;color:#71717a\">Unsubscribe: {{unsubscribe_link}}</span>";
+  "Hi {{name}},<br><br>We have an exciting offer just for you at {{university}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><hr style=\"border:none;border-top:1px solid #e5e5e5;margin:30px 0;\"><div style=\"font-size:12px;color:#666;line-height:1.6;\"><strong>Deep Talent</strong><br>Empowering Connections<br><br>You received this email because you are in our network.<br><a href=\"{{unsubscribe_link}}\" style=\"color:#0066cc;text-decoration:none;\">Unsubscribe from these emails</a></div>";
 
 type PredefinedTemplate = {
   id: string;

@@ -39,17 +39,36 @@ function applyPlaceholders(input: string, recipient: RecipientPayload) {
     custom1: recipient.custom1 ?? "",
     custom2: recipient.custom2 ?? "",
     designation: recipient.custom1 ?? "",
-    unsubscribe_link: "#",
+    unsubscribe_link: "<%asm_group_unsubscribe_raw_url%>",
+    unsubscribe: "<%asm_group_unsubscribe_raw_url%>",
   };
   const getValue = (rawKey: string) => {
     const key = normalize(rawKey);
     if (key in values) return values[key];
-    if (key === "unsubscribe") return values.unsubscribe_link;
     return "";
   };
   return input
     .replace(/\{\{([^}]+)\}\}/g, (_, key: string) => getValue(key))
     .replace(/\[([^\]]+)\]/g, (_, key: string) => getValue(key));
+}
+
+function htmlToPlainText(html: string): string {
+  // Convert HTML to plain text for better deliverability
+  return html
+    .replace(/<style[^>]*>.*?<\/style>/gi, '')
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n\s*\n\s*\n/g, '\n\n')
+    .trim();
 }
 
 type InlineImageAttachment = {
@@ -175,15 +194,31 @@ export async function POST(request: Request) {
           content_id?: string;
         };
         
+        // Generate plain text version for better deliverability
+        const plainTextContent = htmlToPlainText(inline.html);
+
         const mailSendBody: {
           personalizations: Array<{ to: Array<{ email: string; name?: string }> }>;
           from: { email: string; name: string };
           reply_to_list?: Array<{ email: string }>;
           reply_to?: { email: string };
           subject: string;
-          content: Array<{ type: "text/html"; value: string }>;
+          content: Array<{ type: string; value: string }>;
           categories?: string[];
           attachments?: SendGridAttachment[];
+          tracking_settings?: {
+            click_tracking?: { enable: boolean; enable_text: boolean };
+            open_tracking?: { enable: boolean };
+            subscription_tracking?: { enable: boolean };
+          };
+          mail_settings?: {
+            bypass_list_management?: { enable: boolean };
+            footer?: { enable: boolean };
+            sandbox_mode?: { enable: boolean };
+          };
+          asm?: {
+            group_id?: number;
+          };
         } = {
           personalizations: [
             {
@@ -192,8 +227,21 @@ export async function POST(request: Request) {
           ],
           from: { email: fromEmail, name: fromName },
           subject: personalizedSubject,
-          content: [{ type: "text/html", value: inline.html }],
+          content: [
+            { type: "text/plain", value: plainTextContent },
+            { type: "text/html", value: inline.html }
+          ],
           categories: ["ezrecruit-email-portal"],
+          tracking_settings: {
+            click_tracking: { enable: true, enable_text: false },
+            open_tracking: { enable: true },
+            subscription_tracking: { enable: true },
+          },
+          mail_settings: {
+            bypass_list_management: { enable: false },
+            footer: { enable: false },
+            sandbox_mode: { enable: false },
+          },
         };
 
         // Use reply_to_list for multiple addresses, or reply_to for single
@@ -242,6 +290,11 @@ export async function POST(request: Request) {
         }
 
         sentCount += 1;
+        
+        // Add small delay between sends to avoid rate limiting and improve deliverability
+        if (cleanedRecipients.length > 10) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
       } catch (error) {
         failedCount += 1;
         const messageFromSendGrid = error instanceof Error ? error.message : "Unknown send failure";
