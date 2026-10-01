@@ -101,12 +101,12 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const daysParam = Number(url.searchParams.get("days") || "30");
-  const days = Number.isFinite(daysParam) ? Math.min(Math.max(daysParam, 1), 90) : 30;
-
+  
+  // Fixed start date: October 27, 2026 (only show emails from this date onwards)
+  const CAMPAIGN_START_DATE = "2026-10-27";
+  
   const end = new Date();
-  const start = new Date();
-  start.setDate(end.getDate() - days);
+  const start = new Date(CAMPAIGN_START_DATE);
 
   const startDate = start.toISOString().slice(0, 10);
   const endDate = end.toISOString().slice(0, 10);

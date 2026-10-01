@@ -128,10 +128,10 @@ const EMPTY_DASHBOARD_DETAILED: LiveDashboardStats["detailed"] = {
 
 function statsActivityFeedFromTotals(totals: LiveDashboardStats["totals"]) {
   return [
-    { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens in last 30 days`, sub: "SendGrid stats API" },
+    { dot: "bg-sky-500", text: `${formatInt(totals.opens)} unique opens since Oct 27`, sub: "SendGrid stats API" },
     {
       dot: "bg-red-500",
-      text: `${formatInt(totals.undelivered)} undelivered in last 30 days`,
+      text: `${formatInt(totals.undelivered)} undelivered since Oct 27`,
       sub: "bounces + blocks + deferred + drops",
     },
   ];
@@ -458,9 +458,9 @@ export function MailBlastApp() {
         setStatsLoading(true);
         setStatsError("");
         // Add timestamp to prevent browser caching
-        // Fetch last 30 days to show all recent campaign stats
+        // Fetch stats from Oct 27, 2026 onwards
         const cacheBuster = `&_t=${Date.now()}`;
-        const res = await fetch(`/api/sendgrid/stats?days=30${cacheBuster}`, {
+        const res = await fetch(`/api/sendgrid/stats${cacheBuster}`, {
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -1273,7 +1273,7 @@ function DashboardView({
         </div>
       )}
       <Card className="mb-6">
-        <CardHeader title="Campaign stats (Last 30 days)" />
+        <CardHeader title="Campaign stats (From Oct 27, 2026)" />
         <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-3 lg:grid-cols-5">
           {[
             { label: "Requests", value: detailed.requests, metric: "sent" as const },
