@@ -110,6 +110,9 @@ export async function GET(request: Request) {
 
   const startDate = start.toISOString().slice(0, 10);
   const endDate = end.toISOString().slice(0, 10);
+  
+  // Calculate number of days between start and end
+  const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
 
   const startUnix = Math.floor(Date.parse(`${startDate}T00:00:00.000Z`) / 1000);
   const endUnix = Math.floor(Date.parse(`${endDate}T23:59:59.999Z`) / 1000);
