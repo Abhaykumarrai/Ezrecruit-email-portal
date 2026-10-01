@@ -102,8 +102,8 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   
-  // Fixed start date: October 27, 2026 (only show emails from this date onwards)
-  const CAMPAIGN_START_DATE = "2026-10-27";
+  // Fixed start date: September 27, 2026 (only show emails from this date onwards)
+  const CAMPAIGN_START_DATE = "2026-09-27";
   
   const end = new Date();
   const start = new Date(CAMPAIGN_START_DATE);
