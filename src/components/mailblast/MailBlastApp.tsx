@@ -449,6 +449,7 @@ export function MailBlastApp() {
   const [liveStats, setLiveStats] = useState<LiveDashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState("");
+  const [recipientRows, setRecipientRows] = useState<RecipientRow[]>([]);
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -488,6 +489,18 @@ export function MailBlastApp() {
   const insertTag = useCallback((tag: string) => {
     insertAtCursor(editorRef.current, tag);
   }, []);
+
+  const handleComposeWithSelected = useCallback((recipients: RecipientRow[]) => {
+    setRecipientRows(recipients);
+    setPage("compose");
+  }, []);
+
+  useEffect(() => {
+    // Clear recipient rows when navigating away from compose
+    if (page !== "compose") {
+      setRecipientRows([]);
+    }
+  }, [page]);
 
   return (
     <>
@@ -537,12 +550,14 @@ export function MailBlastApp() {
               activeTab={metricTab}
               onTabChange={setMetricTab}
               onBack={() => setPage("dashboard")}
+              onComposeWithSelected={handleComposeWithSelected}
             />
           )}
           {page === "compose" && (
             <ComposeView
               insertTag={insertTag}
               editorRef={editorRef}
+              preloadedRecipients={recipientRows}
               onSend={(draft) => {
                 setCampaignDraft(draft);
                 setSendState("idle");
@@ -816,10 +831,12 @@ function MetricEmailListView({
   activeTab,
   onTabChange,
   onBack,
+  onComposeWithSelected,
 }: {
   activeTab: StatMetric;
   onTabChange: (m: StatMetric) => void;
   onBack: () => void;
+  onComposeWithSelected: (recipients: RecipientRow[]) => void;
 }) {
   const [draftFrom, setDraftFrom] = useState(() => istTodayYmd());
   const [draftTo, setDraftTo] = useState(() => istTodayYmd());
@@ -834,6 +851,7 @@ function MetricEmailListView({
   const [supError, setSupError] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const fromDateRef = useRef<HTMLInputElement>(null);
   const toDateRef = useRef<HTMLInputElement>(null);
 
@@ -911,6 +929,7 @@ function MetricEmailListView({
 
   useEffect(() => {
     setPage(1);
+    setSelectedEmails(new Set());
   }, [activeTab]);
 
   const applyFilter = useCallback(async () => {
@@ -921,6 +940,7 @@ function MetricEmailListView({
     setAppliedFrom(from);
     setAppliedTo(to);
     setPage(1);
+    setSelectedEmails(new Set());
     await fetchSentEmails({ from, to });
   }, [draftFrom, draftTo, fetchSentEmails]);
 
@@ -967,6 +987,42 @@ function MetricEmailListView({
     const start = (safePage - 1) * pageSize;
     return filtered.slice(start, start + pageSize);
   }, [filtered, pageSize, safePage]);
+
+  const handleSelectAll = useCallback(() => {
+    if (selectedEmails.size === filtered.length && filtered.length > 0) {
+      setSelectedEmails(new Set());
+    } else {
+      setSelectedEmails(new Set(filtered.map(r => r.email)));
+    }
+  }, [filtered, selectedEmails.size]);
+
+  const handleSelectOne = useCallback((email: string) => {
+    setSelectedEmails(prev => {
+      const next = new Set(prev);
+      if (next.has(email)) {
+        next.delete(email);
+      } else {
+        next.add(email);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleComposeWithSelected = useCallback(() => {
+    const selectedRows = filtered.filter(row => selectedEmails.has(row.email));
+    const recipients: RecipientRow[] = selectedRows.map(row => ({
+      name: row.name,
+      email: row.email,
+      university: row.university,
+      custom1: "",
+      custom2: "",
+    }));
+    if (recipients.length === 0) {
+      alert("Please select at least one recipient.");
+      return;
+    }
+    onComposeWithSelected(recipients);
+  }, [filtered, selectedEmails, onComposeWithSelected]);
 
   const detailHeader = detailColumnHeader(activeTab);
   const tabLoading = (tabUsesMessages && sentLoading) || (tabUsesSuppressions && supLoading);
@@ -1030,68 +1086,100 @@ function MetricEmailListView({
             {supLoading ? "Loading spam reports & unsubscribes from SendGrid..." : supError}
           </div>
         )}
-        <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-zinc-800 pb-4">
-          <label className="block min-w-[220px]">
-            <span className="mb-1.5 block text-xs text-zinc-400">From</span>
-            <div className="flex items-stretch gap-1.5">
-              <input
-                ref={fromDateRef}
-                type="date"
-                value={draftFrom}
-                onChange={(e) => setDraftFrom(e.target.value)}
-                className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
-              />
-              <button
-                type="button"
-                onClick={() => openDatePicker(fromDateRef)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                title="Open calendar for From date"
-                aria-label="Open calendar for From date"
+        <div className="mb-4 border-b border-zinc-800 pb-4">
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <label className="block min-w-[220px]">
+              <span className="mb-1.5 block text-xs text-zinc-400">From</span>
+              <div className="flex items-stretch gap-1.5">
+                <input
+                  ref={fromDateRef}
+                  type="date"
+                  value={draftFrom}
+                  onChange={(e) => setDraftFrom(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => openDatePicker(fromDateRef)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  title="Open calendar for From date"
+                  aria-label="Open calendar for From date"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </label>
+            <label className="block min-w-[220px]">
+              <span className="mb-1.5 block text-xs text-zinc-400">To</span>
+              <div className="flex items-stretch gap-1.5">
+                <input
+                  ref={toDateRef}
+                  type="date"
+                  value={draftTo}
+                  onChange={(e) => setDraftTo(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => openDatePicker(toDateRef)}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  title="Open calendar for To date"
+                  aria-label="Open calendar for To date"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
+                    <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            </label>
+            <Btn
+              size="sm"
+              variant="primary"
+              className="h-10 border-amber-400/70 bg-amber-400/80 px-4 text-zinc-950 hover:border-amber-300 hover:bg-amber-300"
+              onClick={applyFilter}
+            >
+              Search
+            </Btn>
+          </div>
+          {selectedEmails.size > 0 && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-zinc-400">
+                <strong className="text-sky-400">{selectedEmails.size}</strong> recipient{selectedEmails.size > 1 ? "s" : ""} selected
+              </span>
+              <Btn
+                size="sm"
+                variant="primary"
+                className="border-sky-500/70 bg-sky-500/80 hover:border-sky-400 hover:bg-sky-400"
+                onClick={handleComposeWithSelected}
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-          </label>
-          <label className="block min-w-[220px]">
-            <span className="mb-1.5 block text-xs text-zinc-400">To</span>
-            <div className="flex items-stretch gap-1.5">
-              <input
-                ref={toDateRef}
-                type="date"
-                value={draftTo}
-                onChange={(e) => setDraftTo(e.target.value)}
-                className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 text-[13px] text-zinc-100 outline-none focus:border-sky-600"
-              />
-              <button
-                type="button"
-                onClick={() => openDatePicker(toDateRef)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-400/60 bg-amber-400/15 text-amber-200 transition-colors hover:bg-amber-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                title="Open calendar for To date"
-                aria-label="Open calendar for To date"
+                Compose with selected
+              </Btn>
+              <Btn
+                size="sm"
+                onClick={() => setSelectedEmails(new Set())}
               >
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8" />
-                  <path d="M8 3v4M16 3v4M3 10h18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              </button>
+                Clear selection
+              </Btn>
             </div>
-          </label>
-          <Btn
-            size="sm"
-            variant="primary"
-            className="h-10 border-amber-400/70 bg-amber-400/80 px-4 text-zinc-950 hover:border-amber-300 hover:bg-amber-300"
-            onClick={applyFilter}
-          >
-            Search
-          </Btn>
+          )}
         </div>
 
         <TableShell>
           <thead>
             <tr>
+              <th className="w-10 border-b border-zinc-800 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={filtered.length > 0 && selectedEmails.size === filtered.length}
+                  onChange={handleSelectAll}
+                  className="h-4 w-4 cursor-pointer rounded border-zinc-600 bg-zinc-800 text-sky-500 focus:ring-2 focus:ring-sky-500 focus:ring-offset-0"
+                  title="Select all on this page"
+                />
+              </th>
               <Th>Name</Th>
               <Th>Email</Th>
               <Th>Time sent</Th>
@@ -1102,7 +1190,7 @@ function MetricEmailListView({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <Td className="py-8 text-center text-zinc-500" colSpan={5}>
+                <Td className="py-8 text-center text-zinc-500" colSpan={6}>
                   {activeTab === "sent"
                     ? sentLoading
                       ? "Loading sent emails from SendGrid..."
@@ -1133,6 +1221,14 @@ function MetricEmailListView({
             ) : (
               paginatedRows.map((r) => (
                 <tr key={r.email + r.sentAt} className="hover:[&>td]:bg-zinc-800/40">
+                  <td className="w-10 border-b border-zinc-800/80 px-3 py-2.5 align-middle">
+                    <input
+                      type="checkbox"
+                      checked={selectedEmails.has(r.email)}
+                      onChange={() => handleSelectOne(r.email)}
+                      className="h-4 w-4 cursor-pointer rounded border-zinc-600 bg-zinc-800 text-sky-500 focus:ring-2 focus:ring-sky-500 focus:ring-offset-0"
+                    />
+                  </td>
                   <Td>{r.name}</Td>
                   <Td className="font-mono text-xs text-zinc-300">{r.email}</Td>
                   <Td>{formatSentDisplay(r.sentAt)}</Td>
@@ -1581,18 +1677,20 @@ function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: str
 function ComposeView({
   insertTag,
   editorRef,
+  preloadedRecipients,
   onSend,
 }: {
   insertTag: (t: string) => void;
   editorRef: RefObject<HTMLDivElement | null>;
+  preloadedRecipients?: RecipientRow[];
   onSend: (draft: CampaignDraft) => void;
 }) {
   type ComposeStep = 1 | 2 | 3 | 4;
   const tags = ["{{name}}", "{{email}}", "{{university}}", "{{designation}}"];
 
-  const [step, setStep] = useState<ComposeStep>(1);
+  const [step, setStep] = useState<ComposeStep>(preloadedRecipients && preloadedRecipients.length > 0 ? 3 : 1);
   const [recipientRaw, setRecipientRaw] = useState("");
-  const [recipientRows, setRecipientRows] = useState<RecipientRow[]>([]);
+  const [recipientRows, setRecipientRows] = useState<RecipientRow[]>(preloadedRecipients ?? []);
   const [recipientWarnings, setRecipientWarnings] = useState<string[]>([]);
   const [fromName, setFromName] = useState("");
   const [fromEmail, setFromEmail] = useState("");
@@ -1619,6 +1717,13 @@ function ComposeView({
   const selectedImageRef = useRef<HTMLImageElement | null>(null);
   const draggingImageRef = useRef<HTMLImageElement | null>(null);
   const subjectInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (preloadedRecipients && preloadedRecipients.length > 0) {
+      setRecipientRows(preloadedRecipients);
+      setStep(3);
+    }
+  }, [preloadedRecipients]);
 
   const loadRecipientsFromText = useCallback((raw: string) => {
     const { rows, warnings } = parseRecipientsCsv(raw);
@@ -2034,6 +2139,11 @@ function ComposeView({
           e.target.value = "";
         }}
       />
+      {preloadedRecipients && preloadedRecipients.length > 0 && (
+        <div className="mb-4 rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-200">
+          <strong>{preloadedRecipients.length}</strong> recipient{preloadedRecipients.length > 1 ? "s" : ""} loaded from email activity. You can proceed to compose or add/edit recipients in Step 2.
+        </div>
+      )}
       <div className="mb-6 flex flex-wrap items-center gap-0">
         <Step n="1" label="Sender" state={stepState(1)} />
         <StepLine />
@@ -2088,6 +2198,11 @@ function ComposeView({
       {step === 2 && (
         <Card className="mb-4">
         <h3 className="mb-1.5 text-sm font-medium text-zinc-100">Recipients</h3>
+        {preloadedRecipients && preloadedRecipients.length > 0 && (
+          <div className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+            <strong>{recipientRows.length}</strong> recipient{recipientRows.length > 1 ? "s" : ""} preloaded from email activity. You can add more or edit below.
+          </div>
+        )}
         <input
           ref={csvFileRef}
           type="file"
