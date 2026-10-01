@@ -459,7 +459,7 @@ export function MailBlastApp() {
         setStatsError("");
         // Add timestamp to prevent browser caching
         // Fetch stats from Sep 27, 2026 onwards
-        const cacheBuster = `&_t=${Date.now()}`;
+        const cacheBuster = `?_t=${Date.now()}`;
         const res = await fetch(`/api/sendgrid/stats${cacheBuster}`, {
           cache: 'no-store',
           headers: {
