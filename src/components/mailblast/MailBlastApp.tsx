@@ -782,6 +782,18 @@ type EmailDetailRow = {
 };
 
 /** Rows derived from SendGrid Messages API (`/v3/messages`). */
+function isUndeliveredStatus(status?: string) {
+  const s = (status || "").toLowerCase();
+  return (
+    s === "not_delivered" ||
+    s === "dropped" ||
+    s === "bounced" ||
+    s === "blocked" ||
+    s === "deferred" ||
+    s === "bounce"
+  );
+}
+
 function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDetailRow[] {
   switch (metric) {
     case "sent":
@@ -792,7 +804,7 @@ function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDe
         .map((r) => ({ ...r, detail: `Opened ${r.opensCount}x` }));
     case "undelivered":
       return rows
-        .filter((r) => r.status === "not_delivered")
+        .filter((r) => isUndeliveredStatus(r.status))
         .map((r) => ({ ...r, detail: r.detail || "Not delivered" }));
     default:
       return [];

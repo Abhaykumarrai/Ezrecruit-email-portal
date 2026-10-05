@@ -47,6 +47,89 @@ function toSendGridTimestamp(iso: string) {
   return iso.replace(/\.\d{3}Z$/, "Z");
 }
 
+type EmailLogMessage = {
+  from_email?: string;
+  sg_message_id?: string;
+  subject?: string;
+  to_email?: string;
+  reason?: string;
+  status?: string;
+  sg_message_id_created_at?: string;
+};
+
+type EmailLogsPayload = {
+  messages?: EmailLogMessage[];
+  errors?: Array<{ message?: string }>;
+};
+
+function mapLogMessage(m: EmailLogMessage): EmailDetailRow | null {
+  const email = m.to_email?.trim() || "";
+  if (!email) return null;
+  const rawStatus = (m.status || "").trim().toLowerCase();
+  const undelivered = isLogUndelivered(rawStatus);
+  const label =
+    rawStatus === "delivered"
+      ? "Delivered"
+      : rawStatus === "processed"
+        ? "Processed"
+        : undelivered
+          ? m.reason?.trim() || "Not delivered"
+          : m.status?.trim() || "Sent";
+
+  return {
+    name: "—",
+    email,
+    sentAt: m.sg_message_id_created_at || new Date().toISOString(),
+    university: "—",
+    detail: label,
+    opensCount: 0,
+    clicksCount: 0,
+    status: undelivered ? "not_delivered" : rawStatus || "processed",
+  };
+}
+
+function isLogUndelivered(status: string) {
+  return status === "dropped" || status === "bounced" || status === "blocked" || status === "deferred" || status === "bounce";
+}
+
+async function fetchSendGridLogs(
+  apiKey: string,
+  query?: string
+): Promise<{ rows: EmailDetailRow[]; error?: string; status?: number }> {
+  const response = await fetch("https://api.sendgrid.com/v3/logs", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...(query ? { query } : {}),
+      limit: 1000,
+    }),
+    cache: "no-store",
+  });
+
+  const body = await response.text();
+  let payload: EmailLogsPayload = {};
+  try {
+    payload = JSON.parse(body) as EmailLogsPayload;
+  } catch {
+    return { rows: [], error: body.slice(0, 300), status: response.status };
+  }
+
+  if (!response.ok) {
+    return {
+      rows: [],
+      error: payload.errors?.[0]?.message || body.slice(0, 300),
+      status: response.status,
+    };
+  }
+
+  return {
+    rows: (payload.messages ?? []).map(mapLogMessage).filter((row): row is EmailDetailRow => row !== null),
+  };
+}
+
 function mapMessage(m: SendGridMessage): EmailDetailRow | null {
   const email = m.to_email?.trim() || "";
   if (!email) return null;
@@ -256,17 +339,36 @@ export async function GET(request: Request) {
   const { startIso, endIso } = istYmdRangeToUtcIsoBounds(fromYmd, toYmd);
   const startTs = toSendGridTimestamp(startIso);
   const endTs = toSendGridTimestamp(endIso);
+  const logsQuery = `sg_message_id_created_at >= TIMESTAMP "${startTs}" AND sg_message_id_created_at <= TIMESTAMP "${endTs}"`;
   const dateQuery = `last_event_time BETWEEN TIMESTAMP "${startTs}" AND TIMESTAMP "${endTs}"`;
   const sinceQuery = `last_event_time > TIMESTAMP "${startTs}"`;
 
   try {
     const attempts: Array<{ query: string; count: number; error?: string; status?: number }> = [];
 
-    const dateResult = await fetchSendGridMessages(apiKey, dateQuery);
-    attempts.push({ query: dateQuery, count: dateResult.rows.length, error: dateResult.error, status: dateResult.status });
+    const logsResult = await fetchSendGridLogs(apiKey, logsQuery);
+    attempts.push({ query: `logs: ${logsQuery}`, count: logsResult.rows.length, error: logsResult.error, status: logsResult.status });
 
-    let rows = dateResult.rows;
-    let source = rows.length > 0 ? "sendgrid-messages" : "";
+    let rows = logsResult.rows;
+    let source = rows.length > 0 ? "sendgrid-logs" : "";
+
+    if (rows.length === 0) {
+      const logsRecent = await fetchSendGridLogs(apiKey);
+      attempts.push({ query: "logs: (none)", count: logsRecent.rows.length, error: logsRecent.error, status: logsRecent.status });
+      if (logsRecent.rows.length > 0) {
+        rows = logsRecent.rows;
+        source = "sendgrid-logs-recent";
+      }
+    }
+
+    if (rows.length === 0) {
+      const dateResult = await fetchSendGridMessages(apiKey, dateQuery);
+      attempts.push({ query: dateQuery, count: dateResult.rows.length, error: dateResult.error, status: dateResult.status });
+      if (dateResult.rows.length > 0) {
+        rows = dateResult.rows;
+        source = "sendgrid-messages";
+      }
+    }
 
     if (rows.length === 0) {
       const sinceResult = await fetchSendGridMessages(apiKey, sinceQuery);
@@ -286,21 +388,18 @@ export async function GET(request: Request) {
       }
     }
 
-    let storedRows: EmailDetailRow[] = [];
-    try {
-      const [eventRows, sendRows] = await Promise.all([rowsFromWebhookEvents(fromYmd, toYmd), rowsFromSavedSends(fromYmd, toYmd)]);
-      storedRows = mergeRows(eventRows, sendRows);
-    } catch (err) {
-      attempts.push({
-        query: "mongodb",
-        count: 0,
-        error: err instanceof Error ? err.message : "Mongo lookup failed",
-      });
-    }
-
-    if (storedRows.length > 0) {
-      rows = mergeRows(rows, storedRows);
-      source = rows.length > 0 && source ? `${source}+mongodb` : "mongodb";
+    if (rows.length === 0) {
+      try {
+        const [eventRows, sendRows] = await Promise.all([rowsFromWebhookEvents(fromYmd, toYmd), rowsFromSavedSends(fromYmd, toYmd)]);
+        rows = mergeRows(eventRows, sendRows);
+        if (rows.length > 0) source = "mongodb";
+      } catch (err) {
+        attempts.push({
+          query: "mongodb",
+          count: 0,
+          error: err instanceof Error ? err.message : "Mongo lookup failed",
+        });
+      }
     }
 
     if (rows.length === 0) {
@@ -309,11 +408,11 @@ export async function GET(request: Request) {
         rows: [],
         count: 0,
         source: "none",
-        query: dateQuery,
+        query: logsQuery,
         attempts,
         message:
           activityError ||
-          "SendGrid Stats can count these emails, but the Email Activity Feed has no recipient records. Enable Email Activity History for this API key in SendGrid, or keep Event Webhook storage on so opens/sends can be listed here.",
+          "SendGrid Email Logs in the website still has these recipients, but this API key could not read them. In SendGrid go to Settings → API Keys, edit this app's key, and enable Email Activity. Then retry.",
       });
     }
 
@@ -321,7 +420,7 @@ export async function GET(request: Request) {
       rows,
       count: rows.length,
       source,
-      query: dateQuery,
+      query: logsQuery,
       attempts,
     });
   } catch (error) {
