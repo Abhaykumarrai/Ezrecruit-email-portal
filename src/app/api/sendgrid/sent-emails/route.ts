@@ -48,7 +48,7 @@ export async function GET(request: Request) {
     if (fromYmd > toYmd) [fromYmd, toYmd] = [toYmd, fromYmd];
     try {
       const { startIso, endIso } = istYmdRangeToUtcIsoBounds(fromYmd, toYmd);
-      messagesQuery = `last_event_time BETWEEN TIMESTAMP '${startIso}' AND TIMESTAMP '${endIso}'`;
+      messagesQuery = `last_event_time BETWEEN TIMESTAMP "${startIso}" AND TIMESTAMP "${endIso}"`;
     } catch {
       return NextResponse.json(
         { message: "Invalid from / to date. Use YYYY-MM-DD (interpreted as Asia/Kolkata calendar days)." },

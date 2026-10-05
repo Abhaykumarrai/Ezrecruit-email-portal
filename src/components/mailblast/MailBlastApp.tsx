@@ -19,7 +19,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { isoUtcToIstYmd, istTodayYmd } from "@/lib/istUtcRange";
+import { CAMPAIGN_START_YMD, isoUtcToIstYmd, istTodayYmd } from "@/lib/istUtcRange";
 import { Btn, Card, CardHeader } from "./ui";
 
 type PageId = "dashboard" | "metrics" | "compose" | "settings";
@@ -838,9 +838,9 @@ function MetricEmailListView({
   onBack: () => void;
   onComposeWithSelected: (recipients: RecipientRow[]) => void;
 }) {
-  const [draftFrom, setDraftFrom] = useState(() => istTodayYmd());
+  const [draftFrom, setDraftFrom] = useState(CAMPAIGN_START_YMD);
   const [draftTo, setDraftTo] = useState(() => istTodayYmd());
-  const [appliedFrom, setAppliedFrom] = useState(() => istTodayYmd());
+  const [appliedFrom, setAppliedFrom] = useState(CAMPAIGN_START_YMD);
   const [appliedTo, setAppliedTo] = useState(() => istTodayYmd());
   const [liveSentRows, setLiveSentRows] = useState<EmailDetailRow[]>([]);
   const [spamRows, setSpamRows] = useState<EmailDetailRow[]>([]);
@@ -886,7 +886,7 @@ function MetricEmailListView({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchSentEmails();
+    void fetchSentEmails({ from: CAMPAIGN_START_YMD, to: istTodayYmd() });
 
     const loadSuppressions = async () => {
       setSupLoading(true);
@@ -1145,6 +1145,9 @@ function MetricEmailListView({
               Search
             </Btn>
           </div>
+          <p className="mt-2 text-[11px] text-zinc-500">
+            Defaults to the same campaign window as the dashboard (from 27 Sep 2026). Change the dates and click Search to narrow the list.
+          </p>
           {selectedEmails.size > 0 && (
             <div className="flex items-center gap-3">
               <span className="text-xs text-zinc-400">

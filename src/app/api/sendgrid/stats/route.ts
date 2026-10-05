@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { CAMPAIGN_START_YMD } from "@/lib/istUtcRange";
 
 // Ensure this runs on Node.js runtime, not Edge
 export const runtime = 'nodejs';
@@ -112,11 +113,8 @@ export async function GET(request: Request) {
 
     const url = new URL(request.url);
     
-    // Fixed start date: September 27, 2026 (only show emails from this date onwards)
-    const CAMPAIGN_START_DATE = "2026-09-27";
-    
     const end = new Date();
-    const start = new Date(CAMPAIGN_START_DATE);
+    const start = new Date(CAMPAIGN_START_YMD);
 
     const startDate = start.toISOString().slice(0, 10);
     const endDate = end.toISOString().slice(0, 10);

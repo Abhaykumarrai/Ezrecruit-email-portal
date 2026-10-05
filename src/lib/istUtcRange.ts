@@ -55,3 +55,6 @@ export function isoUtcToIstYmd(iso: string): string {
 export function istTodayYmd(): string {
   return isoUtcToIstYmd(new Date().toISOString());
 }
+
+/** Dashboard and email-activity lists only include mail from this IST calendar day onward. */
+export const CAMPAIGN_START_YMD = "2026-09-27";
