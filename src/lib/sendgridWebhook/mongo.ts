@@ -42,19 +42,42 @@ async function getMongoClient(): Promise<MongoClient> {
   return g.__sendgrid_mongo;
 }
 
-let indexesEnsured = false;
+let eventIndexesEnsured = false;
+let sendIndexesEnsured = false;
+
+export function isMongoConfigured(): boolean {
+  return Boolean(resolveMongoConnectionString().uri);
+}
 
 export async function getEmailEventsCollection(): Promise<Collection> {
   const client = await getMongoClient();
   const dbName = process.env.DATABASE_NAME?.trim() || "email_webhooks";
   const coll = client.db(dbName).collection("email_events");
 
-  if (!indexesEnsured) {
-    indexesEnsured = true;
+  if (!eventIndexesEnsured) {
+    eventIndexesEnsured = true;
     await Promise.all([
       coll.createIndex({ message_id: 1, event: 1, timestamp: 1 }, { unique: true, name: "dedupe_message_event_ts" }),
       coll.createIndex({ email: 1, timestamp: -1 }),
       coll.createIndex({ event: 1, timestamp: -1 }),
+    ]).catch(() => {
+      /* index exists / race — ignore */
+    });
+  }
+
+  return coll;
+}
+
+export async function getEmailSendsCollection(): Promise<Collection> {
+  const client = await getMongoClient();
+  const dbName = process.env.DATABASE_NAME?.trim() || "email_webhooks";
+  const coll = client.db(dbName).collection("email_sends");
+
+  if (!sendIndexesEnsured) {
+    sendIndexesEnsured = true;
+    await Promise.all([
+      coll.createIndex({ email: 1, sentAtUnix: -1 }),
+      coll.createIndex({ sentAtUnix: -1 }),
     ]).catch(() => {
       /* index exists / race — ignore */
     });

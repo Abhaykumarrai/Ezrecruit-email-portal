@@ -179,6 +179,7 @@ export async function POST(request: Request) {
     let sentCount = 0;
     let failedCount = 0;
     const failureReasons: string[] = [];
+    const sentRecipients: typeof cleanedRecipients = [];
 
     for (const recipient of cleanedRecipients) {
       try {
@@ -205,6 +206,7 @@ export async function POST(request: Request) {
           subject: string;
           content: Array<{ type: string; value: string }>;
           categories?: string[];
+          custom_args?: Record<string, string>;
           attachments?: SendGridAttachment[];
           tracking_settings?: {
             click_tracking?: { enable: boolean; enable_text: boolean };
@@ -232,6 +234,7 @@ export async function POST(request: Request) {
             { type: "text/html", value: inline.html }
           ],
           categories: ["ezrecruit-email-portal"],
+          custom_args: { app: "ezrecruit-email-portal" },
           tracking_settings: {
             click_tracking: { enable: true, enable_text: false },
             open_tracking: { enable: true },
@@ -290,6 +293,7 @@ export async function POST(request: Request) {
         }
 
         sentCount += 1;
+        sentRecipients.push(recipient);
         
         // Add small delay between sends to avoid rate limiting and improve deliverability
         if (cleanedRecipients.length > 10) {
@@ -301,6 +305,32 @@ export async function POST(request: Request) {
         if (failureReasons.length < 5) {
           failureReasons.push(messageFromSendGrid);
         }
+      }
+    }
+
+    if (sentRecipients.length > 0) {
+      try {
+        const { getEmailSendsCollection, isMongoConfigured } = await import("@/lib/sendgridWebhook/mongo");
+        if (isMongoConfigured()) {
+          const coll = await getEmailSendsCollection();
+          const now = new Date();
+          const sentAtUnix = Math.floor(now.getTime() / 1000);
+          await coll.insertMany(
+            sentRecipients.map((recipient) => ({
+              email: recipient.email,
+              name: recipient.name ?? "",
+              university: recipient.university ?? "",
+              custom1: recipient.custom1 ?? "",
+              custom2: recipient.custom2 ?? "",
+              subject,
+              sentAt: now.toISOString(),
+              sentAtUnix,
+              source: "ezrecruit-email-portal",
+            }))
+          );
+        }
+      } catch (err) {
+        console.error("[send-campaign] Failed to persist sent recipients", err);
       }
     }
 

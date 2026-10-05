@@ -874,7 +874,11 @@ function MetricEmailListView({
         setLiveSentRows([]);
         return;
       }
-      setLiveSentRows((msgJson.rows ?? []).filter((r) => !!r.email));
+      const rows = (msgJson.rows ?? []).filter((r) => !!r.email);
+      setLiveSentRows(rows);
+      if (rows.length === 0 && msgJson.message) {
+        setSentError(msgJson.message);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Request failed.";
       setSentError(msg);
