@@ -874,7 +874,7 @@ function MetricEmailListView({
     setSentLoading(true);
     setSentError("");
     try {
-      const qs = new URLSearchParams({ limit: "10000" });
+      const qs = new URLSearchParams({ limit: "10000", metric: activeTab });
       if (range) {
         qs.set("from", range.from);
         qs.set("to", range.to);
@@ -898,12 +898,15 @@ function MetricEmailListView({
     } finally {
       setSentLoading(false);
     }
-  }, []);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!tabUsesMessages) return;
+    void fetchSentEmails({ from: appliedFrom, to: appliedTo });
+  }, [appliedFrom, appliedTo, fetchSentEmails, tabUsesMessages]);
 
   useEffect(() => {
     let cancelled = false;
-    void fetchSentEmails({ from: CAMPAIGN_START_YMD, to: istTodayYmd() });
-
     const loadSuppressions = async () => {
       setSupLoading(true);
       setSupError("");
@@ -941,7 +944,7 @@ function MetricEmailListView({
     return () => {
       cancelled = true;
     };
-  }, [fetchSentEmails]);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -957,8 +960,7 @@ function MetricEmailListView({
     setAppliedTo(to);
     setPage(1);
     setSelectedEmails(new Set());
-    await fetchSentEmails({ from, to });
-  }, [draftFrom, draftTo, fetchSentEmails]);
+  }, [draftFrom, draftTo]);
 
   const openDatePicker = useCallback((ref: RefObject<HTMLInputElement | null>) => {
     const input = ref.current;
@@ -1233,7 +1235,7 @@ function MetricEmailListView({
                             ? "Loading message activity..."
                             : sentError
                               ? "Could not load messages. See notice above."
-                              : "No matching rows in this date range. Enable open tracking on sends or widen dates."
+                              : "No open events found for this date range."
                           : "No rows in this date range. Adjust the filter."}
                 </Td>
               </tr>
