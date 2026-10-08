@@ -132,56 +132,6 @@ async function fetchSendGridLogs(
   };
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = [];
-  for (let i = 0; i < items.length; i += limit) {
-    const batch = items.slice(i, i + limit);
-    results.push(...(await Promise.all(batch.map(worker))));
-  }
-  return results;
-}
-
-async function enrichRowsWithOpenEvents(apiKey: string, rows: EmailDetailRow[]): Promise<EmailDetailRow[]> {
-  const candidates = rows.filter(
-    (row) => row.messageId && row.status !== "not_delivered" && (row.opensCount ?? 0) === 0
-  );
-  if (candidates.length === 0) return rows;
-
-  const counts = new Map<string, { opensCount: number; clicksCount: number }>();
-  await mapWithConcurrency(candidates, 12, async (row) => {
-    const messageId = row.messageId as string;
-    try {
-      const response = await fetch(`https://api.sendgrid.com/v3/logs/${encodeURIComponent(messageId)}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        cache: "no-store",
-      });
-      if (!response.ok) return;
-      const payload = (await response.json()) as { events?: Array<{ event?: string }> };
-      const events = payload.events ?? [];
-      counts.set(messageId, {
-        opensCount: events.filter((event) => event.event === "open").length,
-        clicksCount: events.filter((event) => event.event === "click").length,
-      });
-    } catch {
-      /* keep zero counts if a single message lookup fails */
-    }
-  });
-
-  return rows.map((row) => {
-    if (!row.messageId) return row;
-    const extra = counts.get(row.messageId);
-    if (!extra) return row;
-    const opensCount = Math.max(row.opensCount ?? 0, extra.opensCount);
-    const clicksCount = Math.max(row.clicksCount ?? 0, extra.clicksCount);
-    return {
-      ...row,
-      opensCount,
-      clicksCount,
-      detail: opensCount > 0 ? `Opened ${opensCount}x` : row.detail,
-    };
-  });
-}
-
 function mapMessage(m: SendGridMessage): EmailDetailRow | null {
   const email = m.to_email?.trim() || "";
   if (!email) return null;
@@ -370,7 +320,6 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const fromParam = url.searchParams.get("from")?.trim() ?? "";
   const toParam = url.searchParams.get("to")?.trim() ?? "";
-  const metric = url.searchParams.get("metric")?.trim() ?? "";
 
   let fromYmd = fromParam;
   let toYmd = toParam;
@@ -467,37 +416,6 @@ export async function GET(request: Request) {
           activityError ||
           "SendGrid Email Logs in the website still has these recipients, but this API key could not read them. In SendGrid go to Settings → API Keys, edit this app's key, and enable Email Activity. Then retry.",
       });
-    }
-
-    if (metric === "open") {
-      try {
-        const eventRows = await rowsFromWebhookEvents(fromYmd, toYmd);
-        if (eventRows.length > 0) {
-          const opensByEmail = new Map(eventRows.map((row) => [row.email.toLowerCase(), row]));
-          rows = rows.map((row) => {
-            const ev = opensByEmail.get(row.email.toLowerCase());
-            if (!ev) return row;
-            const opensCount = Math.max(row.opensCount ?? 0, ev.opensCount ?? 0);
-            const clicksCount = Math.max(row.clicksCount ?? 0, ev.clicksCount ?? 0);
-            return {
-              ...row,
-              opensCount,
-              clicksCount,
-              detail: opensCount > 0 ? `Opened ${opensCount}x` : row.detail,
-            };
-          });
-        }
-      } catch {
-        /* webhook storage is optional */
-      }
-
-      const needsEvents = rows.some(
-        (row) => (row.opensCount ?? 0) === 0 && row.messageId && row.status !== "not_delivered"
-      );
-      if (needsEvents) {
-        rows = await enrichRowsWithOpenEvents(apiKey, rows);
-        source = source ? `${source}+log-events` : "log-events";
-      }
     }
 
     return NextResponse.json({

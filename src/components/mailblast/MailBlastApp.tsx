@@ -779,6 +779,8 @@ type EmailDetailRow = {
   opensCount?: number;
   clicksCount?: number;
   status?: string;
+  messageId?: string;
+  opensChecked?: boolean;
 };
 
 /** Rows derived from SendGrid Messages API (`/v3/messages`). */
@@ -864,8 +866,10 @@ function MetricEmailListView({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
+  const [openScan, setOpenScan] = useState({ running: false, done: 0, total: 0 });
   const fromDateRef = useRef<HTMLInputElement>(null);
   const toDateRef = useRef<HTMLInputElement>(null);
+  const liveSentRowsRef = useRef<EmailDetailRow[]>([]);
 
   const tabUsesMessages = activeTab === "sent" || activeTab === "open" || activeTab === "undelivered";
   const tabUsesSuppressions = activeTab === "spam" || activeTab === "unsubscribed";
@@ -874,7 +878,7 @@ function MetricEmailListView({
     setSentLoading(true);
     setSentError("");
     try {
-      const qs = new URLSearchParams({ limit: "10000", metric: activeTab });
+      const qs = new URLSearchParams({ limit: "10000" });
       if (range) {
         qs.set("from", range.from);
         qs.set("to", range.to);
@@ -887,6 +891,7 @@ function MetricEmailListView({
         return;
       }
       const rows = (msgJson.rows ?? []).filter((r) => !!r.email);
+      liveSentRowsRef.current = rows;
       setLiveSentRows(rows);
       if (rows.length === 0 && msgJson.message) {
         setSentError(msgJson.message);
@@ -898,7 +903,7 @@ function MetricEmailListView({
     } finally {
       setSentLoading(false);
     }
-  }, [activeTab]);
+  }, []);
 
   useEffect(() => {
     if (!tabUsesMessages) return;
@@ -945,6 +950,70 @@ function MetricEmailListView({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    liveSentRowsRef.current = liveSentRows;
+  }, [liveSentRows]);
+
+  useEffect(() => {
+    if (activeTab !== "open" || sentLoading) return;
+    const pending = liveSentRowsRef.current.filter(
+      (row) => row.messageId && !row.opensChecked && !isUndeliveredStatus(row.status)
+    );
+    if (pending.length === 0) {
+      setOpenScan({ running: false, done: 0, total: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    setOpenScan({ running: true, done: 0, total: pending.length });
+
+    const run = async () => {
+      const batchSize = 20;
+      for (let i = 0; i < pending.length; i += batchSize) {
+        if (cancelled) return;
+        const batch = pending.slice(i, i + batchSize);
+        try {
+          const res = await fetch("/api/sendgrid/log-events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: batch.map((row) => row.messageId) }),
+          });
+          const json = (await res.json()) as {
+            counts?: Record<string, { opensCount?: number; clicksCount?: number }>;
+          };
+          const counts = json.counts ?? {};
+          if (cancelled) return;
+          setLiveSentRows((prev) =>
+            prev.map((row) => {
+              const extra = row.messageId ? counts[row.messageId] : undefined;
+              if (!extra) return row;
+              const opensCount = extra.opensCount ?? 0;
+              const clicksCount = extra.clicksCount ?? 0;
+              return {
+                ...row,
+                opensCount,
+                clicksCount,
+                opensChecked: true,
+                detail: opensCount > 0 ? `Opened ${opensCount}x` : row.detail,
+              };
+            })
+          );
+        } catch {
+          /* continue remaining batches */
+        }
+        if (!cancelled) {
+          setOpenScan({ running: true, done: Math.min(i + batchSize, pending.length), total: pending.length });
+        }
+      }
+      if (!cancelled) setOpenScan((prev) => ({ ...prev, running: false }));
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, appliedFrom, appliedTo, sentLoading, liveSentRows.length]);
 
   useEffect(() => {
     setPage(1);
@@ -1047,7 +1116,7 @@ function MetricEmailListView({
   const loadingLabel = tabUsesSuppressions
     ? "Loading spam reports & unsubscribes..."
     : tabUsesMessages
-      ? "loding matrics"
+      ? "Loading email activity..."
       : "Loading activity...";
 
   return (
@@ -1166,6 +1235,11 @@ function MetricEmailListView({
           <p className="mt-2 text-[11px] text-zinc-500">
             Defaults to the same campaign window as the dashboard (from 27 Sep 2026). Change the dates and click Search to narrow the list.
           </p>
+          {activeTab === "open" && openScan.running ? (
+            <p className="mt-2 text-[12px] text-sky-300">
+              Finding opens… {openScan.done}/{openScan.total} messages checked. Rows appear as they are found.
+            </p>
+          ) : null}
           {selectedEmails.size > 0 && (
             <div className="flex items-center gap-3">
               <span className="text-xs text-zinc-400">
@@ -1235,7 +1309,9 @@ function MetricEmailListView({
                             ? "Loading message activity..."
                             : sentError
                               ? "Could not load messages. See notice above."
-                              : "No open events found for this date range."
+                              : openScan.running
+                                ? "Checking Email Logs for open events…"
+                                : "No open events found for this date range."
                           : "No rows in this date range. Adjust the filter."}
                 </Td>
               </tr>
