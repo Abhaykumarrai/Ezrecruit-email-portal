@@ -800,10 +800,18 @@ function deriveRowsFromLive(metric: StatMetric, rows: EmailDetailRow[]): EmailDe
   switch (metric) {
     case "sent":
       return rows;
-    case "open":
-      return rows
-        .filter((r) => (r.opensCount ?? 0) > 0)
-        .map((r) => ({ ...r, detail: `Opened ${r.opensCount}x` }));
+    case "open": {
+      const opened = rows.filter((r) => (r.opensCount ?? 0) > 0);
+      const unique = new Map<string, EmailDetailRow>();
+      for (const row of opened) {
+        const key = row.email.toLowerCase();
+        const prev = unique.get(key);
+        if (!prev || (row.opensCount ?? 0) > (prev.opensCount ?? 0) || row.sentAt > prev.sentAt) {
+          unique.set(key, { ...row, detail: `Opened ${row.opensCount}x` });
+        }
+      }
+      return Array.from(unique.values()).sort((a, b) => (a.sentAt < b.sentAt ? 1 : -1));
+    }
     case "undelivered":
       return rows
         .filter((r) => isUndeliveredStatus(r.status))
@@ -1237,7 +1245,7 @@ function MetricEmailListView({
           </p>
           {activeTab === "open" && openScan.running ? (
             <p className="mt-2 text-[12px] text-sky-300">
-              Finding opens… {openScan.done}/{openScan.total} messages checked. Rows appear as they are found.
+              Checking sent mail for unique human opens: {openScan.done}/{openScan.total}. Found {filtered.length} so far.
             </p>
           ) : null}
           {selectedEmails.size > 0 && (

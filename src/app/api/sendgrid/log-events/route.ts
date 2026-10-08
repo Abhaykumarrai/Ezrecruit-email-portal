@@ -12,10 +12,11 @@ async function countsForMessage(apiKey: string, messageId: string): Promise<Even
     cache: "no-store",
   });
   if (!response.ok) return { opensCount: 0, clicksCount: 0 };
-  const payload = (await response.json()) as { events?: Array<{ event?: string }> };
+  const payload = (await response.json()) as { events?: Array<{ event?: string; sg_machine_open?: boolean }> };
   const events = payload.events ?? [];
   return {
-    opensCount: events.filter((event) => event.event === "open").length,
+    // Match SendGrid unique-open stats: ignore Apple/privacy prefetch machine opens.
+    opensCount: events.filter((event) => event.event === "open" && event.sg_machine_open !== true).length,
     clicksCount: events.filter((event) => event.event === "click").length,
   };
 }
