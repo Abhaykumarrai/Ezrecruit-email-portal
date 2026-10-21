@@ -126,12 +126,11 @@ export async function POST(request: Request) {
     const recipients = payload.recipients ?? [];
     const fileAttachments = payload.attachments ?? [];
 
-    // Validate total attachment size (max 8MB)
     if (fileAttachments.length > 0) {
       const totalSize = fileAttachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
-      if (totalSize > 8 * 1024 * 1024) {
+      if (totalSize > 3 * 1024 * 1024) {
         return NextResponse.json(
-          { message: "Total attachment size exceeds 8MB. Please reduce the size of your attachments." },
+          { message: "Total attachment size exceeds 3MB. Please reduce the size of your attachments." },
           { status: 413 }
         );
       }
@@ -180,12 +179,13 @@ export async function POST(request: Request) {
     let failedCount = 0;
     const failureReasons: string[] = [];
     const sentRecipients: typeof cleanedRecipients = [];
+    const sharedInline = extractInlineImageAttachments(html);
 
     for (const recipient of cleanedRecipients) {
       try {
         const personalizedSubject = applyPlaceholders(subject, recipient);
-        const personalizedHtml = applyPlaceholders(html, recipient);
-        const inline = extractInlineImageAttachments(personalizedHtml);
+        const personalizedHtml = applyPlaceholders(sharedInline.html, recipient);
+        const inline = { html: personalizedHtml, attachments: sharedInline.attachments };
         
         type SendGridAttachment = {
           content: string;

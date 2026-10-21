@@ -604,19 +604,41 @@ export function MailBlastApp() {
                   if (!campaignDraft) return;
                   try {
                     setSendState("sending");
-                    setSendMessage("Sending campaign...");
-                    const res = await fetch("/api/sendgrid/send-campaign", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(campaignDraft),
-                    });
-                    const data = (await res.json()) as { message?: string; sentCount?: number; failedCount?: number };
-                    if (!res.ok) {
-                      throw new Error(data.message || "Unable to send campaign.");
+                    const recipients = campaignDraft.recipients;
+                    let sentCount = 0;
+                    let failedCount = 0;
+                    const failureReasons: string[] = [];
+                    for (let i = 0; i < recipients.length; i += SEND_CHUNK_SIZE) {
+                      const chunk = recipients.slice(i, i + SEND_CHUNK_SIZE);
+                      const from = i + 1;
+                      const to = Math.min(i + SEND_CHUNK_SIZE, recipients.length);
+                      setSendMessage(`Sending ${from}–${to} of ${recipients.length}...`);
+                      const res = await fetch("/api/sendgrid/send-campaign", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...campaignDraft, recipients: chunk }),
+                      });
+                      const data = await readApiJson<{
+                        message?: string;
+                        sentCount?: number;
+                        failedCount?: number;
+                        failureReasons?: string[];
+                      }>(res);
+                      if (!res.ok) {
+                        throw new Error(data.message || "Unable to send campaign.");
+                      }
+                      sentCount += data.sentCount ?? 0;
+                      failedCount += data.failedCount ?? 0;
+                      if (data.failureReasons?.length) {
+                        failureReasons.push(...data.failureReasons.slice(0, 3));
+                      }
+                    }
+                    if (sentCount === 0) {
+                      throw new Error(failureReasons[0] || "SendGrid rejected all emails.");
                     }
                     setSendState("done");
                     setSendMessage(
-                      `Campaign sent. Success: ${data.sentCount ?? 0}${data.failedCount ? `, Failed: ${data.failedCount}` : ""}.`
+                      `Campaign sent. Success: ${sentCount}${failedCount ? `, Failed: ${failedCount}` : ""}.`
                     );
                   } catch (err) {
                     setSendState("error");
@@ -1708,6 +1730,61 @@ function normHeader(s: string) {
 }
 
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+const VERCEL_BODY_LIMIT = 3.5 * 1024 * 1024;
+const SEND_CHUNK_SIZE = 25;
+
+async function readApiJson<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (res.status === 413 || /request entity too large/i.test(text)) {
+      throw new Error(
+        "The email is too large to send (images or attachments). Reduce image size in the body and keep total under 3.5MB."
+      );
+    }
+    throw new Error(text.replace(/<[^>]+>/g, " ").trim().slice(0, 180) || `Send failed (HTTP ${res.status}).`);
+  }
+}
+
+function utf8Bytes(value: string) {
+  return new TextEncoder().encode(value).length;
+}
+
+async function compressDataImage(dataUrl: string): Promise<string> {
+  if (dataUrl.length < 80_000) return dataUrl;
+  return await new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = 1200;
+      const scale = Math.min(1, maxW / Math.max(img.width, 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const jpeg = canvas.toDataURL("image/jpeg", 0.72);
+      resolve(jpeg.length < dataUrl.length ? jpeg : dataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+async function compressHtmlImages(html: string): Promise<string> {
+  const re = /src="(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)"/g;
+  const matches = [...html.matchAll(re)].map((m) => m[1]);
+  let out = html;
+  for (const original of matches) {
+    const compressed = await compressDataImage(original);
+    if (compressed !== original) out = out.split(original).join(compressed);
+  }
+  return out;
+}
 
 function parseRecipientsCsv(text: string): { rows: RecipientRow[]; warnings: string[] } {
   const warnings: string[] = [];
@@ -1903,10 +1980,9 @@ function ComposeView({
             },
           ];
           
-          // Check total size (all attachments combined should be under 8MB)
           const totalSize = newAttachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
-          if (totalSize > 8 * 1024 * 1024) {
-            alert(`Total attachment size exceeds 8MB. Please remove some files.`);
+          if (totalSize > 3 * 1024 * 1024) {
+            alert(`Total attachment size exceeds 3MB. Please remove some files.`);
             return prev;
           }
           
@@ -1964,8 +2040,8 @@ function ComposeView({
     }
   }, [editorHtml, editorRef]);
 
-  const sendCampaign = useCallback(() => {
-    const html = (editorRef.current?.innerHTML || editorHtml).trim();
+  const sendCampaign = useCallback(async () => {
+    const rawHtml = (editorRef.current?.innerHTML || editorHtml).trim();
     if (!fromEmail.trim() || !replyToEmail.trim()) {
       setFormError("From email and reply-to email are required.");
       return;
@@ -1974,7 +2050,7 @@ function ComposeView({
       setFormError("Subject line is required.");
       return;
     }
-    if (!html) {
+    if (!rawHtml) {
       setFormError("Email body cannot be empty.");
       return;
     }
@@ -1982,18 +2058,17 @@ function ComposeView({
       setFormError("Add at least one valid recipient before sending.");
       return;
     }
-    
-    // Validate total attachment size
+
     if (attachments.length > 0) {
       const totalSize = attachments.reduce((sum, att) => sum + att.content.length * 0.75, 0);
-      if (totalSize > 8 * 1024 * 1024) {
-        setFormError("Total attachment size exceeds 8MB. Please remove some files.");
+      if (totalSize > 3 * 1024 * 1024) {
+        setFormError("Total attachment size exceeds 3MB. Please remove or compress files.");
         return;
       }
     }
-    
-    setFormError("");
-    onSend({
+
+    const html = await compressHtmlImages(rawHtml);
+    const draft: CampaignDraft = {
       fromName: fromName.trim() || "Team",
       fromEmail: fromEmail.trim(),
       replyToEmail: replyToEmail.trim(),
@@ -2001,7 +2076,14 @@ function ComposeView({
       html,
       recipients: recipientRows,
       attachments,
-    });
+    };
+    if (utf8Bytes(JSON.stringify(draft)) > VERCEL_BODY_LIMIT) {
+      setFormError("This campaign is too large to send (images in the email body). Use smaller images and try again.");
+      return;
+    }
+
+    setFormError("");
+    onSend(draft);
   }, [editorHtml, editorRef, fromEmail, fromName, onSend, recipientRows, replyToEmail, subject, attachments]);
 
   const goNext = useCallback(() => {
@@ -2573,7 +2655,7 @@ function ComposeView({
                 Add Files
               </Btn>
               <span className="text-[11px] text-zinc-500">
-                Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, ZIP, RAR (Max 5MB per file, 8MB total)
+                Supported: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, TXT, ZIP, RAR (Max 5MB per file, 3MB total)
               </span>
             </div>
             
