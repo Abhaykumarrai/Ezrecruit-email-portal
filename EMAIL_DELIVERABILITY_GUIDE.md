@@ -1,12 +1,12 @@
 # Email Deliverability Guide - Avoid Spam
 
-## ✅ Code Improvements (Already Implemented)
+## ✅ Code behavior
 
-1. **Plain Text Version** - All emails now include both HTML and plain text versions
-2. **Proper Unsubscribe Links** - Using SendGrid's ASM (Advanced Suppression Management)
-3. **Click & Open Tracking** - Enabled for better engagement metrics
-4. **Rate Limiting** - 100ms delay between sends to avoid triggering spam filters
-5. **Content Type Headers** - Proper MIME types for better email client compatibility
+1. **Plain text plus HTML** — every send includes both parts, and link URLs are kept in the plain-text part.
+2. **Working unsubscribe** — `{{unsubscribe_link}}` becomes SendGrid's subscription tag. If `SENDGRID_ASM_GROUP_ID` is set, the message also sends `asm.group_id` so the one-click ASM link resolves. A missing group id used to leave the raw tag in the body.
+3. **Click tracking only with link branding** — links stay on your domain until SendGrid link branding is valid for that domain (or `SENDGRID_LINK_BRANDING=true`).
+4. **Authenticated From only** — free mailboxes are rejected, and the From domain must be authenticated in SendGrid and have a DMARC record.
+5. **Slower sends** — 500ms between messages in a batch, and 1.5s between batches.
 
 ---
 
@@ -34,7 +34,8 @@
 1. Go to SendGrid → Email API → Suppressions → Unsubscribe Groups
 2. Create a group: "Marketing Emails" or "Recruitment Updates"
 3. Note the Group ID
-4. Add to your emails (already done in code if you have Group ID)
+4. Set `SENDGRID_ASM_GROUP_ID` to that id in the server environment
+5. Set `SENDGRID_POSTAL_ADDRESS` to the company street address so it is appended on every send
 
 ### 3. **Warm Up Your IP/Domain**
 
@@ -53,12 +54,12 @@ Go to SendGrid → Settings → Mail Settings:
 
 ✅ Enable:
 - Event Webhook (track bounces, spam reports)
-- Link Branding
-- Click Tracking
+- Link Branding (required before click tracking helps; the app leaves click tracking off until branding is valid)
 - Open Tracking
 
 ❌ Disable:
-- Plain Content (we handle this in code)
+- Click Tracking in the SendGrid UI until Link Branding shows valid. The send API turns it off itself when branding is missing.
+- Plain Content (the app already sends a plain-text part)
 - Legacy Email Templates
 
 ---
@@ -76,8 +77,8 @@ Go to SendGrid → Settings → Mail Settings:
    - Use a recognizable "From" email (e.g., `recruiting@deeptalent.in`)
 
 3. **Add physical address**
-   - Required by CAN-SPAM law
-   - Add to email footer
+   - Required by CAN-SPAM
+   - Set `SENDGRID_POSTAL_ADDRESS` so the send API appends it on every message
 
 4. **Clear unsubscribe link**
    - Use: `{{unsubscribe_link}}` in your templates

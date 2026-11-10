@@ -1,7 +1,24 @@
+import { promises as dns } from "dns";
 import { NextResponse } from "next/server";
+import {
+  applyPlaceholders,
+  emailDomain,
+  ensureComplianceFooter,
+  envAllowedDomains,
+  envFlag,
+  fromDomainBlockReason,
+  htmlToPlainText,
+  isFreemailDomain,
+  linkBrandingCoversDomain,
+  parseAsmGroupId,
+  unsubscribeHref,
+  type AuthenticatedDomain,
+  type BrandedLink,
+} from "@/lib/emailDeliverability";
 
 // Allow up to 60 seconds for sending large campaigns
 export const maxDuration = 60;
+export const runtime = "nodejs";
 
 type RecipientPayload = {
   name?: string;
@@ -29,46 +46,67 @@ type SendCampaignPayload = {
 
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 const DATA_IMAGE_RE = /data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)/g;
+const SEND_GAP_MS = 500;
 
-function applyPlaceholders(input: string, recipient: RecipientPayload) {
-  const normalize = (key: string) => key.trim().toLowerCase().replace(/[\s_-]+/g, "");
-  const values: Record<string, string> = {
-    name: recipient.name ?? "",
-    email: recipient.email ?? "",
-    university: recipient.university ?? "",
-    custom1: recipient.custom1 ?? "",
-    custom2: recipient.custom2 ?? "",
-    designation: recipient.custom1 ?? "",
-    unsubscribe_link: "<%asm_group_unsubscribe_raw_url%>",
-    unsubscribe: "<%asm_group_unsubscribe_raw_url%>",
-  };
-  const getValue = (rawKey: string) => {
-    const key = normalize(rawKey);
-    if (key in values) return values[key];
-    return "";
-  };
-  return input
-    .replace(/\{\{([^}]+)\}\}/g, (_, key: string) => getValue(key))
-    .replace(/\[([^\]]+)\]/g, (_, key: string) => getValue(key));
+async function readSendGridList(
+  apiKey: string,
+  path: string
+): Promise<{ rows: unknown[] } | { status: number }> {
+  const res = await fetch(`https://api.sendgrid.com/v3${path}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+    cache: "no-store",
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) return { status: res.status };
+  const body: unknown = await res.json();
+  return { rows: Array.isArray(body) ? body : [] };
 }
 
-function htmlToPlainText(html: string): string {
-  // Convert HTML to plain text for better deliverability
-  return html
-    .replace(/<style[^>]*>.*?<\/style>/gi, '')
-    .replace(/<script[^>]*>.*?<\/script>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<\/h[1-6]>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\n\s*\n\s*\n/g, '\n\n')
-    .trim();
+function asDomainRows(rows: unknown[]): AuthenticatedDomain[] {
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const domain = "domain" in row && typeof row.domain === "string" ? row.domain : "";
+    const valid = "valid" in row && row.valid === true;
+    return domain ? [{ domain, valid }] : [];
+  });
+}
+
+function asBrandedLinks(rows: unknown[]): BrandedLink[] {
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const domain = "domain" in row && typeof row.domain === "string" ? row.domain : "";
+    const subdomain = "subdomain" in row && typeof row.subdomain === "string" ? row.subdomain : undefined;
+    const valid = "valid" in row && row.valid === true;
+    return domain ? [{ domain, subdomain, valid }] : [];
+  });
+}
+
+async function hasDmarcRecord(domain: string): Promise<boolean | null> {
+  const labels = domain.split(".").filter(Boolean);
+  const candidates = labels.length > 2 ? [domain, labels.slice(1).join(".")] : [domain];
+  let sawUnknown = false;
+  for (const candidate of candidates) {
+    const found = await lookupDmarc(candidate);
+    if (found === true) return true;
+    if (found === null) sawUnknown = true;
+  }
+  return sawUnknown ? null : false;
+}
+
+async function lookupDmarc(domain: string): Promise<boolean | null> {
+  try {
+    const records = await Promise.race([
+      dns.resolveTxt(`_dmarc.${domain}`),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(Object.assign(new Error("timeout"), { code: "ETIMEOUT" })), 3000);
+      }),
+    ]);
+    return records.some((parts) => parts.join("").toLowerCase().includes("v=dmarc1"));
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "ENOTFOUND" || code === "ENODATA") return false;
+    return null;
+  }
 }
 
 type InlineImageAttachment = {
@@ -175,16 +213,72 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "No valid recipients found." }, { status: 400 });
     }
 
+    const asm = parseAsmGroupId(process.env.SENDGRID_ASM_GROUP_ID);
+    if (asm.error) {
+      return NextResponse.json({ message: asm.error }, { status: 400 });
+    }
+    const fromDomain = emailDomain(fromEmail);
+    if (isFreemailDomain(fromDomain)) {
+      return NextResponse.json(
+        {
+          message: `From address ${fromEmail} uses a free mailbox. Mail sent through SendGrid from Gmail, Outlook, Yahoo, and similar domains fails SPF and DKIM alignment, so mailbox providers file it as spam. Use an address on a domain authenticated in SendGrid.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    let authenticatedDomains: AuthenticatedDomain[] | null = null;
+    let brandedLinks: BrandedLink[] | null = null;
+    try {
+      const [domainResult, linkResult] = await Promise.all([
+        readSendGridList(apiKey, "/whitelabel/domains"),
+        readSendGridList(apiKey, "/whitelabel/links"),
+      ]);
+      if ("rows" in domainResult) authenticatedDomains = asDomainRows(domainResult.rows);
+      if ("rows" in linkResult) brandedLinks = asBrandedLinks(linkResult.rows);
+    } catch (error) {
+      console.error("[send-campaign] Could not read SendGrid sender authentication", error);
+    }
+
+    const domainBlock = fromDomainBlockReason(
+      fromEmail,
+      authenticatedDomains,
+      envAllowedDomains(process.env.SENDGRID_FROM_EMAIL, process.env.SENDGRID_ALLOWED_FROM_DOMAINS)
+    );
+    if (domainBlock) {
+      return NextResponse.json({ message: domainBlock }, { status: 400 });
+    }
+
+    const dmarc = await hasDmarcRecord(fromDomain);
+    if (dmarc === false) {
+      return NextResponse.json(
+        {
+          message: `From domain ${fromDomain} has no DMARC record. Add a TXT record on _dmarc.${fromDomain} with: v=DMARC1; p=none; rua=mailto:${fromEmail}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const href = unsubscribeHref(asm.groupId);
+    const clickTracking = linkBrandingCoversDomain(fromDomain, brandedLinks, process.env.SENDGRID_LINK_BRANDING);
+    const openTracking = envFlag(process.env.SENDGRID_OPEN_TRACKING, true);
+    const postalAddress = process.env.SENDGRID_POSTAL_ADDRESS?.trim() ?? "";
+
     let sentCount = 0;
     let failedCount = 0;
     const failureReasons: string[] = [];
     const sentRecipients: typeof cleanedRecipients = [];
     const sharedInline = extractInlineImageAttachments(html);
 
-    for (const recipient of cleanedRecipients) {
+    for (let index = 0; index < cleanedRecipients.length; index += 1) {
+      const recipient = cleanedRecipients[index];
       try {
-        const personalizedSubject = applyPlaceholders(subject, recipient);
-        const personalizedHtml = applyPlaceholders(sharedInline.html, recipient);
+        const personalizedSubject = applyPlaceholders(subject, recipient, href);
+        const personalizedHtml = ensureComplianceFooter(applyPlaceholders(sharedInline.html, recipient, href), {
+          unsubscribeHref: href,
+          fromName,
+          postalAddress,
+        });
         const inline = { html: personalizedHtml, attachments: sharedInline.attachments };
         
         type SendGridAttachment = {
@@ -211,7 +305,7 @@ export async function POST(request: Request) {
           tracking_settings?: {
             click_tracking?: { enable: boolean; enable_text: boolean };
             open_tracking?: { enable: boolean };
-            subscription_tracking?: { enable: boolean };
+            subscription_tracking?: { enable: boolean; substitution_tag?: string };
           };
           mail_settings?: {
             bypass_list_management?: { enable: boolean };
@@ -236,9 +330,11 @@ export async function POST(request: Request) {
           categories: ["ezrecruit-email-portal"],
           custom_args: { app: "ezrecruit-email-portal" },
           tracking_settings: {
-            click_tracking: { enable: true, enable_text: false },
-            open_tracking: { enable: true },
-            subscription_tracking: { enable: true },
+            click_tracking: { enable: clickTracking, enable_text: false },
+            open_tracking: { enable: openTracking },
+            subscription_tracking: asm.groupId
+              ? { enable: false }
+              : { enable: true, substitution_tag: href },
           },
           mail_settings: {
             bypass_list_management: { enable: false },
@@ -246,6 +342,9 @@ export async function POST(request: Request) {
             sandbox_mode: { enable: false },
           },
         };
+        if (asm.groupId) {
+          mailSendBody.asm = { group_id: asm.groupId };
+        }
 
         // Use reply_to_list for multiple addresses, or reply_to for single
         if (replyToEmails.length > 1) {
@@ -294,10 +393,9 @@ export async function POST(request: Request) {
 
         sentCount += 1;
         sentRecipients.push(recipient);
-        
-        // Add small delay between sends to avoid rate limiting and improve deliverability
-        if (cleanedRecipients.length > 10) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+
+        if (index < cleanedRecipients.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, SEND_GAP_MS));
         }
       } catch (error) {
         failedCount += 1;

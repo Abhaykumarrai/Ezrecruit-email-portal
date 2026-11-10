@@ -19,6 +19,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { applyPlaceholders } from "@/lib/emailDeliverability";
 import { CAMPAIGN_START_YMD, isoUtcToIstYmd, istTodayYmd } from "@/lib/istUtcRange";
 import { Btn, Card, CardHeader } from "./ui";
 
@@ -631,6 +632,9 @@ export function MailBlastApp() {
                       failedCount += data.failedCount ?? 0;
                       if (data.failureReasons?.length) {
                         failureReasons.push(...data.failureReasons.slice(0, 3));
+                      }
+                      if (i + SEND_CHUNK_SIZE < recipients.length) {
+                        await new Promise((resolve) => setTimeout(resolve, 1500));
                       }
                     }
                     if (sentCount === 0) {
@@ -1639,7 +1643,7 @@ function StepLine() {
 }
 
 const EDITOR_HTML =
-  "Hi {{name}},<br><br>We have an exciting offer just for you at {{university}}. As a valued customer, we are reaching out to share something special.<br><br>Click below to learn more!<br><br>Best regards,<br>The Team<br><br><hr style=\"border:none;border-top:1px solid #e5e5e5;margin:30px 0;\"><div style=\"font-size:12px;color:#666;line-height:1.6;\"><strong>Deep Talent</strong><br>Empowering Connections<br><br>You received this email because you are in our network.<br><a href=\"{{unsubscribe_link}}\" style=\"color:#0066cc;text-decoration:none;\">Unsubscribe from these emails</a></div>";
+  "Hi {{name}},<br><br>I wanted to share how recruitment teams are cutting time spent on trackers and follow-ups.<br><br>If it is useful, I can walk you through it on a short call this week.<br><br>Best regards,<br>The Team<br><br><hr style=\"border:none;border-top:1px solid #e5e5e5;margin:30px 0;\"><div style=\"font-size:12px;line-height:1.6;color:#666666;font-family:Arial,Helvetica,sans-serif;\"><strong>Deep Talent</strong><br>Empowering Connections<br><br>You received this email because you are in our recruitment network.<br><a href=\"{{unsubscribe_link}}\" style=\"color:#1155cc;text-decoration:underline;\">Unsubscribe</a></div>";
 
 type PredefinedTemplate = {
   id: string;
@@ -1665,7 +1669,9 @@ Best Regards,
 Rajat Singh
 Global Partnership Lead
 Deeptalent Technologies Pvt.
-+91 6300112759 | Rajat@deeptalent.in`,
++91 6300112759 | Rajat@deeptalent.in
+
+Unsubscribe: {{unsubscribe_link}}`,
   },
   {
     id: "scale-without-hiring",
@@ -1683,7 +1689,9 @@ Best Regards,
 Rajat Singh
 Global Partnership Lead
 Deeptalent Technologies Pvt.
-+91 6300112759 | Rajat@deeptalent.in`,
++91 6300112759 | Rajat@deeptalent.in
+
+Unsubscribe: {{unsubscribe_link}}`,
   },
 ];
 
@@ -1693,6 +1701,10 @@ function templateTextToHtml(text: string) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+    .replace(/(https?:\/\/[^\s<]+|www\.[^\s<]+)/g, (url) => {
+      const href = url.startsWith("http") ? url : `https://${url}`;
+      return `<a href="${href}" style="color:#1155cc;text-decoration:underline;">${url}</a>`;
+    })
     .replace(/\r?\n/g, "<br>");
 }
 
@@ -2114,21 +2126,7 @@ function ComposeView({
   const previewRecipient = useMemo<RecipientRow | null>(() => recipientRows[0] ?? null, [recipientRows]);
 
   const resolvePreviewPlaceholders = useCallback((input: string, row: RecipientRow) => {
-  const normalize = (key: string) => key.trim().toLowerCase().replace(/[\s_-]+/g, "");
-  const values: Record<string, string> = {
-    name: row.name ?? "",
-    email: row.email ?? "",
-    university: row.university ?? "",
-    custom1: row.custom1 ?? "",
-    custom2: row.custom2 ?? "",
-    designation: row.custom1 ?? "",
-    unsubscribelink: "#",
-    unsubscribe: "#",
-  };
-    const getValue = (rawKey: string) => values[normalize(rawKey)] ?? "";
-    return input
-      .replace(/\{\{([^}]+)\}\}/g, (_, key: string) => getValue(key))
-      .replace(/\[([^\]]+)\]/g, (_, key: string) => getValue(key));
+    return applyPlaceholders(input, row, "#");
   }, []);
   const resolvedPreviewHtml = useMemo(() => {
     if (!previewRecipient) return "";
